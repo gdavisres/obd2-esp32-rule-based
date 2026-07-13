@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ============================================================================
 # .gitignore — obd2-esp32-rule-based
 # Padrões para PlatformIO + ESP32 + VS Code + Python + SO
@@ -119,7 +118,3 @@ docs/latex/
 
 # --- Temporários do PlatformIO Check (cppcheck) ---
 .cppcheck/
-=======
-.pio 
-.vscode 
->>>>>>> b1b0aa3 (feat(m0): hello world + oled boot + led blink)
