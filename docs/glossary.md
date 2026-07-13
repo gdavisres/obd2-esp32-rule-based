@@ -19,3 +19,9 @@
 | LTFT | Long-Term Fuel Trim | Correcao de combustivel de longo prazo (aprendida). |
 | SSD1306 | - | Controlador de display OLED 128x64 com interface I2C. |
 | FSM | Finite State Machine | Maquina de estados finita. |
+| Git | - | Sistema de controle de versao distribuido. |
+| Branch | - | Linha de desenvolvimento independente no Git. |
+| Commit | - | Snapshot de mudancas no codigo com mensagem descritiva. |
+| PR | Pull Request | Pedido para mesclar mudancas de um branch para outro (usado no GitHub). |
+| Conventional Commit | - | Convencao de formatacao de mensagens de commit (tipo: escopo: descricao). |
+| GitFlow | - | Modelo de branching com branches feature, release, hotfix e main. |
