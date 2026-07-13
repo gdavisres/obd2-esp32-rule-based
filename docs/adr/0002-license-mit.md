@@ -44,3 +44,7 @@ Adotar licença **MIT**.
 ## Notas para futuro
 
 Se o projeto envolver dependências GPL (ex.: uma biblioteca externa sob GPL-3), seria necessário reavaliação. Atualmente, as dependências previstas (SSD1306, BluetoothSerial, PubSubClient) são todas MIT ou Apache 2.0.
+
+## Nota sobre formatação da linha de copyright
+
+A linha de copyright foi simplificada para Copyright (c) 2026 Gabriel Davi Silva Resende (UNIFEI / PET-TEC) (uma única linha, com a atribuiçãoinstitucional entre parênteses) em vez de duas linhas separadas. Motivo:o detector de licença do GitHub (licensee) requer alta similaridade como template MIT canônico; múltiplas linhas Copyright (c) + texto extraderrubavam o score abaixo do limiar e o badge de "MIT License" nãoaparecia na página do repositório. A atribuição institucional à UNIFEIcontinua preservada, apenas em formato compactado.
