@@ -28,6 +28,29 @@ feature/m0-setup  feature/m1-display  (one branch per milestone sub-task)
 - ✅ Force push is **only** allowed on `feature/<your-name>/*` branches that you own exclusively.
 - ✅ To "undo" a commit on a shared branch, use `git revert <hash>` (creates a new commit that inverses the changes).
 
+## Multi-Developer Workflow
+
+### Direct commits to dev - not allowed
+
+All changes to `dev` must come via Pull Request from a `feature/<author>/<topic>`
+or `fix/<author>/<topic>` branch. Direct commits to `dev` (bypassing PR) are
+not allowed because:
+
+- Other collaborators don't get a chance to review before integration.
+- The PR diff view (with inline comments) is lost.
+- The audit trail for "why this change was made" is weaker.
+
+If you accidentally commit directly to `dev`:
+1. Don't push yet - create a feature branch from before your commit, then
+  cherry-pick your commit onto it.
+2. If you already pushed to `dev`, open an after-the-fact PR (empty diff
+  but with description of what was committed) for documentation purposes.
+3. Notify collaborators in the team channel.
+
+The branch protection on `main` (PR required) prevents this on `main`,
+but `dev` is currently unprotected to keep the workflow agile. Discipline
+is required.
+
 ### Creating a feature branch
 
 ```bash
