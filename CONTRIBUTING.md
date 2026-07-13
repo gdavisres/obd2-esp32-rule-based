@@ -21,6 +21,13 @@ feature/m0-setup  feature/m1-display  (one branch per milestone sub-task)
 - `feature/<milestone>-<topic>` branches are short-lived (max 1 week).
 - At the end of each milestone, `dev` is merged into `main` and tagged.
 
+### Force push policy
+
+- ❌ **NEVER** `git push --force` or `git push -f` on `main` or `dev`.
+- ❌ **NEVER** `git push --force-with-lease` on `main` or `dev` (except in the rare case of recovering from a corrupted state, with team coordination).
+- ✅ Force push is **only** allowed on `feature/<your-name>/*` branches that you own exclusively.
+- ✅ To "undo" a commit on a shared branch, use `git revert <hash>` (creates a new commit that inverses the changes).
+
 ### Creating a feature branch
 
 ```bash
