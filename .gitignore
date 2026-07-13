@@ -1,0 +1,120 @@
+# ============================================================================
+# .gitignore — obd2-esp32-rule-based
+# Padrões para PlatformIO + ESP32 + VS Code + Python + SO
+# ============================================================================
+
+# --- PlatformIO ---
+# Diretório de build e dependências — NUNCA commitar (é gigante e regenerável)
+.pio/
+.pioenvs/
+.piolibdeps/
+.piobuild/
+
+# --- VS Code ---
+# Configurações pessoais do editor — cada dev tem as suas
+.vscode/
+*.code-workspace
+
+# --- IntelliJ / CLion (caso use no futuro) ---
+.idea/
+cmake-build-*/
+
+# --- Build artifacts do PlatformIO ---
+# Binários gerados pelo build — regeneráveis, não versionar
+*.elf
+*.bin
+*.map
+*.hex
+*.uf2
+
+# --- Arquivos de debug / dumps ---
+core
+core.*
+*.dump
+*.stackdump
+
+# --- Python (para o simulador OBD de M3) ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Jupyter Notebook (caso use para análise) ---
+.ipynb_checkpoints
+
+# --- Sistema operacional: macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Sistema operacional: Windows ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+ $RECYCLE.BIN/
+
+# --- Sistema operacional: Linux ---
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# --- Editores: Vim / Emacs / Sublime ---
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Secrets / credenciais (NUNCA commitar) ---
+.env
+.env.local
+*.pem
+*.key
+secrets.h
+credentials.h
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Cobertura de testes ---
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# --- CMake (caso migre para ESP-IDF no futuro) ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# --- Documentação gerada ---
+docs/_build/
+docs/html/
+docs/latex/
+
+# --- Temporários do PlatformIO Check (cppcheck) ---
+.cppcheck/
