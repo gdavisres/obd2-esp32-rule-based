@@ -17,6 +17,9 @@
 
 - PlatformIO Documentation - https://docs.platformio.org/
 - Arduino-ESP32 Core - https://github.com/espressif/arduino-esp32
+- Pro Git by Scott Chacon - https://git-scm.com/book/en/v2
+- Conventional Commits Specification - https://www.conventionalcommits.org/
+- GitHub Documentation - https://docs.github.com/
 
 ## Bibliografia do projeto
 
