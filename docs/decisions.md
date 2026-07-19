@@ -5,10 +5,11 @@ contexto, decisão, justificativa, consequências, alternativas, status.
 
 ## Lista de ADRs
 
-| # | Título | Status | Data |
-|---|--------|--------|------|
-| 1 | Escolha do toolchain (PlatformIO+Arduino) | accepted | [preacher] |
-| 2 | Licença MIT vs GPL-3 | accepted | [preacher] |
+| # | Título                                                        | Status   | Data       |
+|---|---------------------------------------------------------------|----------|------------|
+| 1 | Escolha do toolchain (PlatformIO+Arduino)                     | accepted | 12/07/2026 |
+| 2 | Licença MIT vs GPL-3                                          | accepted | 12/07/2026 |
+| 3 | Escolha da biblioteca de display (Adafruit_SSD1306 vs U8g2)   | accepted | 19/07/2026 |
 
 ## Como criar um novo ADR
 

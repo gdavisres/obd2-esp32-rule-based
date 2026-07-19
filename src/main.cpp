@@ -2,116 +2,100 @@
  * @file main.cpp
  * @brief Ponto de entrada do firmware — Sistema de Diagnóstico OBD-II.
  *
- * Milestone M0: smoke test do toolchain + inicialização do OLED + blink LED.
- * Estabelece a base que será refatorada em tasks FreeRTOS a partir de M3.
+ * Milestone M1: o main.cpp agora é fino. Toda a lógica de UI foi movida
+ * para lib/display/. Aqui ficam apenas:
+ *   - Inicialização (Serial + display_init).
+ *   - Loop de validação que cicla pelas 3 telas implementadas em M1.
  *
- * Hardware:
- *   - ESP32 DevKit v1 30 pinos (CH340C)
- *   - OLED SSD1306 128x64 I2C (endereço 0x3C)
- *     SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
- *   - LED onboard -> GPIO2
+ * Em M2+, este loop será substituído por tasks FreeRTOS.
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
- * @author Vitor Fernandes (colaborador M0)
  * @license MIT
  * @version 0.1.0
  */
 
 #include <Arduino.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ------- Configurações do Display OLED -------
-static const uint8_t  SCREEN_WIDTH   = 128;
-static const uint8_t  SCREEN_HEIGHT  = 64;
-static const int8_t   OLED_RESET     = -1;          // -1 = compartilha reset do ESP32
-static const uint8_t  OLED_ADDRESS   = 0x3C;        // Pode ser 0x3D em alguns módulos
+#include "pinout.h"
+#include "display.h"
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-// ------- Configuração do LED Onboard -------
-static const uint8_t  LED_PIN        = 2;
-static const uint16_t BLINK_INTERVAL = 500;          // ms (500 on + 500 off = 1 Hz)
-
-// ------- Estado do display (fail-soft) -------
-static bool display_ok = false;
-
-// ------- Versão do firmware (injetada via build_flags) -------
+// Versão do firmware, injetada via build_flags no platformio.ini.
 static const char* FIRMWARE_VERSION = PROJECT_VERSION;
 
+// Intervalo entre trocas de tela no loop de validação.
+static const uint16_t SCREEN_CYCLE_MS = 3000;
 
-// =============================================================
-//  SETUP - Inicialização
-// =============================================================
+// ============================================================================
+// SETUP
+// ============================================================================
 void setup() {
     Serial.begin(115200);
-    delay(100);  // Tempo para o CH340C estabilizar a conexão USB.
+    delay(100);  // Tempo para o CH340C estabilizar.
 
-    // ------- Boot Banner na Serial -------
     Serial.println();
     Serial.println("========================================");
     Serial.println("OBD Diagnostic v" + String(FIRMWARE_VERSION));
     Serial.println("UNIFEI / PET-TEC / UNIGOU 2026");
-    Serial.println("Fase: M0 — smoke test + OLED boot + LED blink");
+    Serial.println("Fase: M1 — display driver + telas de status");
     Serial.println("========================================");
-    Serial.println("[boot] status=ok serial=115200 led=GPIO2 oled=0x3C");
-    Serial.println();
 
-    // ------- Configuração do LED -------
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, LOW);
+    // Configura LED onboard (continua piscando para heartbeat)
+    pinMode(PIN_LED_STATUS, OUTPUT);
+    digitalWrite(PIN_LED_STATUS, LOW);
 
-    // ------- Inicialização do Display OLED (fail-soft) -------
-    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
-        Serial.println(F("[ERRO] Display OLED nao encontrado — operando sem UI"));
-        display_ok = false;
-    } else {
-        display_ok = true;
-        Serial.println(F("[OK] Display OLED inicializado"));
+    // Inicializa o display (fail-soft: continua se OLED não responder)
+    bool ok = display_init();
+    Serial.printf("[boot] display_init=%s\n", ok ? "OK" : "FAIL");
 
-        // ------- Tela de Boot no OLED -------
-        display.clearDisplay();
-        display.setTextColor(SSD1306_WHITE);
-
-        // Título centralizado
-        display.setTextSize(2);
-        const char* title = "OBD Diagnostic";
-        int16_t  x1, y1;
-        uint16_t w, h;
-        display.getTextBounds(title, 0, 0, &x1, &y1, &w, &h);
-        display.setCursor((SCREEN_WIDTH - w) / 2, 15);
-        display.print(title);
-
-        // Versão centralizada
-        display.setTextSize(1);
-        display.setCursor((SCREEN_WIDTH - 30) / 2, 40);
-        display.print("v");
-        display.print(FIRMWARE_VERSION);
-
-        // Status
-        display.setCursor(30, 55);
-        display.print("Iniciando...");
-
-        display.display();
-        Serial.println(F("[OK] Tela de boot exibida"));
+    if (ok) {
+        // Renderiza tela de boot imediatamente
+        DisplayPayload p = {};
+        strncpy(p.line1, "OBD Diagnostic", sizeof(p.line1) - 1);
+        strncpy(p.line2, FIRMWARE_VERSION,    sizeof(p.line2) - 1);
+        strncpy(p.line3, "Iniciando...",       sizeof(p.line3) - 1);
+        display_render(ScreenId::BOOT, p);
     }
 
     Serial.println();
 }
 
-
-// =============================================================
-//  LOOP - Blink do LED a 1 Hz + heartbeat no Serial
-// =============================================================
+// ============================================================================
+// LOOP — cicla pelas 3 telas de M1 a cada SCREEN_CYCLE_MS para validação
+// ============================================================================
 void loop() {
-    // LED blink a 1 Hz: 500ms ON, 500ms OFF
-    digitalWrite(LED_PIN, HIGH);
-    delay(BLINK_INTERVAL);
-    digitalWrite(LED_PIN, LOW);
-    delay(BLINK_INTERVAL);
-
-    // Heartbeat no Serial — prova que o firmware está vivo.
-    // Em M3, este loop() ficará vazio (toda lógica em tasks FreeRTOS).
+    static uint8_t current_screen = 0;
+    static uint32_t last_switch = 0;
     static uint32_t counter = 0;
-    Serial.printf("[heartbeat] tick=%u\n", static_cast<unsigned int>(counter++));
+
+    // Heartbeat no LED e no Serial
+    digitalWrite(PIN_LED_STATUS, (millis() / 500) % 2);
+    if (millis() - last_switch >= SCREEN_CYCLE_MS) {
+        last_switch = millis();
+        current_screen = (current_screen + 1) % 3;
+
+        DisplayPayload p = {};
+        switch (current_screen) {
+            case 0:
+                strncpy(p.line1, "OBD Diagnostic", sizeof(p.line1) - 1);
+                strncpy(p.line2, FIRMWARE_VERSION, sizeof(p.line2) - 1);
+                strncpy(p.line3, "Tela BOOT",      sizeof(p.line3) - 1);
+                display_render(ScreenId::BOOT, p);
+                Serial.printf("[cycle] tela=BOOT tick=%lu\n", static_cast<unsigned long>(counter++));
+                break;
+            case 1:
+                strncpy(p.line1, "Aguardando",  sizeof(p.line1) - 1);
+                strncpy(p.line2, "ELM327...",   sizeof(p.line2) - 1);
+                strncpy(p.line3, "Conectando...", sizeof(p.line3) - 1);
+                display_render(ScreenId::WAITING, p);
+                Serial.printf("[cycle] tela=WAITING tick=%lu\n", static_cast<unsigned long>(counter++));
+                break;
+            case 2:
+                strncpy(p.line1, "Sem conexao",    sizeof(p.line1) - 1);
+                strncpy(p.line2, "Verifique ELM327", sizeof(p.line2) - 1);
+                strncpy(p.line3, "Reset em 5s...",   sizeof(p.line3) - 1);
+                display_render(ScreenId::NO_CONN, p);
+                Serial.printf("[cycle] tela=NO_CONN tick=%lu\n", static_cast<unsigned long>(counter++));
+                break;
+        }
+    }
 }
