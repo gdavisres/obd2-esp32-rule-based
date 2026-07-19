@@ -7,9 +7,14 @@
 | DTC | Diagnostic Trouble Code | Codigo de falha padronizado (ex.: P0128). |
 | ECU | Engine Control Unit | Computador de bordo do veiculo. |
 | ELM327 | - | Chip integrador OBD-II <-> UART/Bluetooth, da ELM Electronics. |
+| enum class | - | Tipo enumerado com escopo forte em C++. |
+| framebuffer | - | Area de memoria usada para desenhar a imagem antes de envia-la ao display. |
 | GPIO | General Purpose Input/Output | Pino digital programavel do microcontrolador. |
 | I2C | Inter-Integrated Circuit | Barramento serial sincrono, 2 fios (SDA + SCL). |
+| I2C scanner | - | Sketch/utilitario para detectar dispositivos e enderecos no barramento I2C. |
+| library.json | - | Manifesto da biblioteca no PlatformIO; descreve nome, versao e dependencias. |
 | OBD-II | On-Board Diagnostics, 2a geracao | Padrao de diagnostico veicular obrigatorio nos EUA desde 1996. |
+| page buffer | - | Buffer temporario organizado por paginas para renderizacao incremental no display. |
 | PIC18F25K80 | - | Microcontrolador PIC da Microchip, usado no ELM327 V1.5 original. |
 | PID | Parameter ID | Identificador de um parametro OBD-II (ex.: 0x05 = ECT). |
 | SAE J1979 | - | Norma que define PIDs OBD-II. |
@@ -18,6 +23,8 @@
 | STFT | Short-Term Fuel Trim | Correcao de combustivel de curto prazo. |
 | LTFT | Long-Term Fuel Trim | Correcao de combustivel de longo prazo (aprendida). |
 | SSD1306 | - | Controlador de display OLED 128x64 com interface I2C. |
+| mutex | - | Mecanismo de exclusao mutua usado para proteger recursos compartilhados. |
+| thread-safety | - | Propriedade de um codigo poder ser chamado por multiplas tasks sem race conditions. |
 | FSM | Finite State Machine | Maquina de estados finita. |
 | Git | - | Sistema de controle de versao distribuido. |
 | Branch | - | Linha de desenvolvimento independente no Git. |

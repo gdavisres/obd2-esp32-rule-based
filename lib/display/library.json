@@ -1,0 +1,19 @@
+{
+    "name": "display",
+    "version": "0.1.0",
+    "description": "OLED SSD1306 driver wrapper with thread-safe render API",
+    "authors": [
+        {
+            "name": "Gabriel Davi Silva Resende",
+            "email": "gabriel@unifei.edu.br",
+            "url": "https://github.com/gdavisres"
+        }
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "adafruit/Adafruit SSD1306": "^2.5.7",
+        "adafruit/Adafruit GFX Library": "^1.11.9"
+    },
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}

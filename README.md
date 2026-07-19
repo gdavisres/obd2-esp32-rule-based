@@ -9,7 +9,7 @@
 [![Build Tool](https://img.shields.io/badge/build-PlatformIO-orange.svg)](https://platformio.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Language](https://img.shields.io/badge/language-C%2B%2B17-blue.svg)]()
-[![Status](https://img.shields.io/badge/status-M0%20setup-green.svg)]()
+[![Status](https://img.shields.io/badge/status-M1%20display%20driver-green.svg)]()
 
 ---
 
@@ -34,6 +34,10 @@ This repository contains the **rule-based baseline** firmware of an
 on-board vehicle diagnostic system. The full research project targets
 predictive fault detection via machine learning; this module establishes
 the deterministic baseline against which the ML models will be evaluated.
+
+M1 extracts the OLED driver into `lib/display/`, adds a thread-safe render
+API with a FreeRTOS mutex, and keeps the firmware fail-soft if the display
+is missing.
 
 **Architecture (three layers):**
 
@@ -104,10 +108,10 @@ diagnostic latency < 250 ms per cycle.
 | Milestone | Description                          | Status        | Docs                                  |
 |-----------|--------------------------------------|---------------|---------------------------------------|
 | Etapa 0   | PlatformIO + VS Code setup           | ✅ done        | —                                     |
-| Etapa 1   | Git/GitHub repository                | 🚧 in progress| —                                     |
-| M0        | Hello World + OLED boot + LED blink  | ⏳ pending     | —                                     |
-| M1        | SSD1306 driver + status screens      | ⏳ pending     | —                                     |
-| M2        | Bluetooth SPP + ELM327 V1.5 init     | ⏳ pending     | —                                     |
+| Etapa 1   | Git/GitHub repository                | ✅ done        | —                                     |
+| M0        | Hello World + OLED boot + LED blink  | ✅ done        | —                                     |
+| M1        | SSD1306 driver + status screens      | ✅ done        | [`docs/adr/0003-display-library-adafruit-vs-u8g2.md`](./docs/adr/0003-display-library-adafruit-vs-u8g2.md) |
+| M2        | Bluetooth SPP + ELM327 V1.5 init     | 🚧 next        | —                                     |
 | M3        | OBD-II PID layer + parser            | ⏳ pending     | —                                     |
 | M4        | Rule engine + FSM + hysteresis       | ⏳ pending     | —                                     |
 | M5        | OLED UI + LED blink patterns         | ⏳ pending     | —                                     |
@@ -135,13 +139,9 @@ obd2-esp32-rule-based/
 │   ├── test_results.md
 │   ├── thresholds.md
 │   └── wiring.md
-├── include/           ← Shared headers (obd_pids.h, dtc_table.h, pinout.h)
-├── lib/               ← Local libraries (one folder per subsystem, from M1)
-│   ├── display/
-│   ├── obd_client/
-│   ├── rule_engine/
-│   ├── led_indicator/
-│   └── logger/
+├── include/           ← Shared headers (including pinout.h)
+├── lib/               ← Local libraries (M1 starts with display/)
+│   └── display/
 ├── scripts/           ← Python helper scripts (OBD simulator, log analyzer)
 ├── src/               ← Application entry point
 │   └── main.cpp
