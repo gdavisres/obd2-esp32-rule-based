@@ -2,100 +2,133 @@
  * @file main.cpp
  * @brief Ponto de entrada do firmware — Sistema de Diagnóstico OBD-II.
  *
- * Milestone M1: o main.cpp agora é fino. Toda a lógica de UI foi movida
- * para lib/display/. Aqui ficam apenas:
- *   - Inicialização (Serial + display_init).
- *   - Loop de validação que cicla pelas 3 telas implementadas em M1.
- *
- * Em M2+, este loop será substituído por tasks FreeRTOS.
+ * Milestone M2: integração do subsistema OBD client (Bluetooth SPP + ELM327).
+ * O loop() agora chama obd_client_loop() para gerenciar a FSM de conexão.
+ * O display reage ao estado da FSM: WAITING em PAIRING/INITIALIZING,
+ * NO_CONN em RECOVERING/DISCONNECTED.
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
  * @license MIT
- * @version 0.1.0
+ * @version 0.2.0
  */
 
 #include <Arduino.h>
 
 #include "pinout.h"
 #include "display.h"
+#include "obd_client.h"
 
-// Versão do firmware, injetada via build_flags no platformio.ini.
 static const char* FIRMWARE_VERSION = PROJECT_VERSION;
-
-// Intervalo entre trocas de tela no loop de validação.
-static const uint16_t SCREEN_CYCLE_MS = 3000;
 
 // ============================================================================
 // SETUP
 // ============================================================================
 void setup() {
     Serial.begin(115200);
-    delay(100);  // Tempo para o CH340C estabilizar.
+    delay(100);
 
     Serial.println();
     Serial.println("========================================");
     Serial.println("OBD Diagnostic v" + String(FIRMWARE_VERSION));
     Serial.println("UNIFEI / PET-TEC / UNIGOU 2026");
-    Serial.println("Fase: M1 — display driver + telas de status");
+    Serial.println("Fase: M2 — Bluetooth SPP + ELM327 V1.5");
     Serial.println("========================================");
 
-    // Configura LED onboard (continua piscando para heartbeat)
     pinMode(PIN_LED_STATUS, OUTPUT);
     digitalWrite(PIN_LED_STATUS, LOW);
 
-    // Inicializa o display (fail-soft: continua se OLED não responder)
-    bool ok = display_init();
-    Serial.printf("[boot] display_init=%s\n", ok ? "OK" : "FAIL");
+    bool disp_ok = display_init();
+    Serial.printf("[boot] display_init=%s\n", disp_ok ? "OK" : "FAIL");
 
-    if (ok) {
-        // Renderiza tela de boot imediatamente
+    // Tela de boot
+    if (disp_ok) {
         DisplayPayload p = {};
         strncpy(p.line1, "OBD Diagnostic", sizeof(p.line1) - 1);
-        strncpy(p.line2, FIRMWARE_VERSION,    sizeof(p.line2) - 1);
-        strncpy(p.line3, "Iniciando...",       sizeof(p.line3) - 1);
+        strncpy(p.line2, FIRMWARE_VERSION, sizeof(p.line2) - 1);
+        strncpy(p.line3, "Boot M2...",     sizeof(p.line3) - 1);
         display_render(ScreenId::BOOT, p);
     }
 
-    Serial.println();
+    // Inicializa cliente OBD (Bluetooth SPP)
+    bool obd_ok = obd_client_init();
+    Serial.printf("[boot] obd_client_init=%s\n", obd_ok ? "OK" : "FAIL");
+
+    delay(2000);  // Mostra tela de boot por 2s antes de prosseguir
 }
 
 // ============================================================================
-// LOOP — cicla pelas 3 telas de M1 a cada SCREEN_CYCLE_MS para validação
+// LOOP — gerencia FSM do OBD client e atualiza display
 // ============================================================================
 void loop() {
-    static uint8_t current_screen = 0;
-    static uint32_t last_switch = 0;
-    static uint32_t counter = 0;
+    static uint32_t last_display_update = 0;
+    static ObdClientState last_displayed_state = ObdClientState::DISCONNECTED;
 
-    // Heartbeat no LED e no Serial
-    digitalWrite(PIN_LED_STATUS, (millis() / 500) % 2);
-    if (millis() - last_switch >= SCREEN_CYCLE_MS) {
-        last_switch = millis();
-        current_screen = (current_screen + 1) % 3;
+    // Processa FSM do cliente OBD (gerencia pairing, AT, handshake, reconexão)
+    obd_client_loop();
+
+    // Atualiza display a cada 1s ou quando estado muda
+    ObdClientState current_state = obd_client_get_state();
+    uint32_t now = millis();
+
+    bool state_changed = (current_state != last_displayed_state);
+    bool time_to_update = (now - last_display_update >= 1000);
+
+    if (state_changed || time_to_update) {
+        last_display_update = now;
+        last_displayed_state = current_state;
 
         DisplayPayload p = {};
-        switch (current_screen) {
-            case 0:
-                strncpy(p.line1, "OBD Diagnostic", sizeof(p.line1) - 1);
-                strncpy(p.line2, FIRMWARE_VERSION, sizeof(p.line2) - 1);
-                strncpy(p.line3, "Tela BOOT",      sizeof(p.line3) - 1);
-                display_render(ScreenId::BOOT, p);
-                Serial.printf("[cycle] tela=BOOT tick=%lu\n", static_cast<unsigned long>(counter++));
-                break;
-            case 1:
+        switch (current_state) {
+            case ObdClientState::PAIRING:
+            case ObdClientState::INITIALIZING:
+            case ObdClientState::HANDSHAKING:
                 strncpy(p.line1, "Aguardando",  sizeof(p.line1) - 1);
                 strncpy(p.line2, "ELM327...",   sizeof(p.line2) - 1);
-                strncpy(p.line3, "Conectando...", sizeof(p.line3) - 1);
                 display_render(ScreenId::WAITING, p);
-                Serial.printf("[cycle] tela=WAITING tick=%lu\n", static_cast<unsigned long>(counter++));
                 break;
-            case 2:
+
+            case ObdClientState::CONNECTED:
+                strncpy(p.line1, "Conectado",   sizeof(p.line1) - 1);
+                strncpy(p.line2, "ELM327 OK",   sizeof(p.line2) - 1);
+                display_render(ScreenId::BOOT, p);  // Reusa BOOT temporariamente
+                break;
+
+            case ObdClientState::DISCONNECTED:
+            case ObdClientState::RECOVERING:
+            default:
                 strncpy(p.line1, "Sem conexao",    sizeof(p.line1) - 1);
                 strncpy(p.line2, "Verifique ELM327", sizeof(p.line2) - 1);
-                strncpy(p.line3, "Reset em 5s...",   sizeof(p.line3) - 1);
+                {
+                    uint8_t attempts = obd_client_get_reconnect_attempts();
+                    if (attempts > 0) {
+                        snprintf(p.line3, sizeof(p.line3),
+                                 "Tentativas: %u", attempts);
+                    } else {
+                        strncpy(p.line3, "Iniciando...", sizeof(p.line3) - 1);
+                    }
+                }
                 display_render(ScreenId::NO_CONN, p);
-                Serial.printf("[cycle] tela=NO_CONN tick=%lu\n", static_cast<unsigned long>(counter++));
                 break;
         }
+    }
+
+    // Heartbeat LED: padrão reflete estado
+    // CONNECTED: pisca lento (1 Hz)
+    // Em transição: pisca rápido (5 Hz)
+    // DISCONNECTED/RECOVERING: contínuo
+    uint32_t blink_period;
+    if (current_state == ObdClientState::CONNECTED) {
+        blink_period = 1000;  // 1 Hz
+    } else if (current_state == ObdClientState::RECOVERING ||
+               current_state == ObdClientState::DISCONNECTED) {
+        blink_period = 0;     // Contínuo (solid)
+    } else {
+        blink_period = 200;   // 5 Hz (em transição)
+    }
+
+    if (blink_period == 0) {
+        digitalWrite(PIN_LED_STATUS, HIGH);  // Solid
+    } else {
+        digitalWrite(PIN_LED_STATUS, (now / (blink_period / 2)) % 2);
     }
 }
