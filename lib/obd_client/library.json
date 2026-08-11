@@ -1,0 +1,14 @@
+{
+    "name": "obd_client",
+    "version": "0.1.0",
+    "description": "ELM327 Bluetooth SPP client with FSM and auto-reconnect",
+    "authors": [
+        {
+            "name": "Gabriel Davi Silva Resende",
+            "email": "gabriel@unifei.edu.br"
+        }
+    ],
+    "license": "MIT",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}

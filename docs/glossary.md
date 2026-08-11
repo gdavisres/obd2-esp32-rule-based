@@ -32,3 +32,11 @@
 | PR | Pull Request | Pedido para mesclar mudancas de um branch para outro (usado no GitHub). |
 | Conventional Commit | - | Convencao de formatacao de mensagens de commit (tipo: escopo: descricao). |
 | GitFlow | - | Modelo de branching com branches feature, release, hotfix e main. |
+| BT SPP | Bluetooth Serial Port Profile | Perfil Bluetooth que emula porta serial via RFCOMM. |
+| ELM327 | — | Chip integrador OBD-II ↔ UART/Bluetooth da ELM Electronics. |
+| PIC18F25K80 | — | Microcontrolador PIC usado no ELM327 V1.5 original. |
+| AT command | — | Comando de configuração do ELM327 (ex.: ATZ, ATE0). |
+| Backoff exponencial | — | Estratégia de retry onde o delay dobra a cada tentativa. |
+| FSM | Finite State Machine | Máquina de estados finita usada para modelar a conexão. |
+| Pairing | — | Processo de associação inicial entre dois dispositivos Bluetooth. |
+| Prompt | — | Caractere > que o ELM327 envia para indicar pronto para próximo comando. |
