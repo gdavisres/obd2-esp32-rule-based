@@ -171,6 +171,31 @@ static void render_no_conn(const DisplayPayload& p) {
     display.display();
 }
 
+static void render_normal(const DisplayPayload& p) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+
+    // 4 linhas de texto, fonte 1 (8 px), espaçamento 14 px
+    display.setTextSize(1);
+
+    display.setCursor(0, 0);
+    display.print(p.line1);
+
+    display.setCursor(0, 16);
+    display.print(p.line2);
+
+    display.setCursor(0, 32);
+    display.print(p.line3);
+
+    display.setCursor(0, 48);
+    display.print(p.line4);
+
+    // Linha separadora entre dados e status (linha 4)
+    display.drawLine(0, 45, SCREEN_WIDTH, 45, SSD1306_WHITE);
+
+    display.display();
+}
+
 // ============================================================================
 // Implementação da API pública
 // ============================================================================
@@ -214,26 +239,27 @@ bool display_render(ScreenId id, const DisplayPayload& payload) {
         return false;
     }
 
-    switch (id) {
-        case ScreenId::BOOT:
-            render_boot(payload);
-            break;
-        case ScreenId::WAITING:
-            render_waiting(payload);
-            break;
-        case ScreenId::NO_CONN:
-            render_no_conn(payload);
-            break;
-        // As telas NORMAL, WARNING, CRITICAL ainda não têm implementação.
-        // Serão adicionadas em M3 e M5. Cair no default é bug do chamador.
-        case ScreenId::NORMAL:
-        case ScreenId::WARNING:
-        case ScreenId::CRITICAL:
-        default:
-            Serial.printf("[display] WARN: tela %d nao implementada em M1\n",
-                          static_cast<int>(id));
-            break;
-    }
+   switch (id) {
+    case ScreenId::BOOT:
+        render_boot(payload);
+        break;
+    case ScreenId::WAITING:
+        render_waiting(payload);
+        break;
+    case ScreenId::NO_CONN:
+        render_no_conn(payload);
+        break;
+    case ScreenId::NORMAL:
+        render_normal(payload);
+        break;
+    // WARNING e CRITICAL ainda não implementados (M5)
+    case ScreenId::WARNING:
+    case ScreenId::CRITICAL:
+    default:
+        Serial.printf("[display] WARN: tela %d nao implementada em M3\n",
+                      static_cast<int>(id));
+        break;
+}
 
     xSemaphoreGive(display_mutex);
     return true;
