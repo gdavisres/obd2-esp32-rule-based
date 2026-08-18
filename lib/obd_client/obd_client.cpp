@@ -2,20 +2,15 @@
  * @file obd_client.cpp
  * @brief Implementação do cliente OBD-II (Bluetooth SPP + ELM327 V1.5).
  *
- * Detalhes de implementação:
- *   - Usa BluetoothSerial.h do core Arduino-ESP32.
- *   - FSM de conexão com 6 estados.
- *   - Sequência AT: ATZ → ATE0 → ATL0 → ATS0 → ATH0 → ATSP0.
- *   - Handshake: PID 0x00, valida resposta 41 00 <bitmask>.
- *   - Reconexão: backoff exponencial (15s, 30s, 60s, 120s cap).
- *   - Parser robusto: filtra NO DATA, UNABLE TO CONNECT, ?, SEARCHING.
- *   - Mutex FreeRTOS para thread-safety.
- *
- * Referência: ELM327 Datasheet v1.5 (ELM327DS_v1.5.pdf).
+ * M3 — Adiciona:
+ *   - Funções de conversão SAE J1979 para 9 PIDs.
+ *   - Cache de bitmask de PIDs suportados.
+ *   - Leitura de snapshot com sampling diferenciado.
+ *   - Métricas de latência por PID.
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
  * @license MIT
- * @version 0.1.0
+ * @version 0.2.0
  */
 
 #include "obd_client.h"
@@ -25,18 +20,19 @@
 #include <freertos/semphr.h>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 
 #include "../../include/obd_config.h"
 #include "../../include/obd_pids.h"
 
 // ============================================================================
-// Estado interno
+// Forward declarations
 // ============================================================================
-
-// Protótipo antecipado para que fsm_handshaking() possa chamar a versão
-// "locked" da função de envio, que assume o mutex já tomado.
 static bool obd_client_send_locked(ObdPid pid, ObdPidResponse& response);
 
+// ============================================================================
+// Estado interno
+// ============================================================================
 static BluetoothSerial serialBT;
 static SemaphoreHandle_t obd_mutex = nullptr;
 
@@ -52,27 +48,24 @@ static uint16_t response_len = 0;
 // Índice do comando AT atual (na sequência de init)
 static uint8_t at_command_index = 0;
 
+// Cache de PIDs suportados (bitmask de 4 bytes do PID 0x00)
+static bool     bitmask_cached = false;
+static uint8_t  supported_bitmask[4] = {0, 0, 0, 0};
 
 // ============================================================================
 // Sequência de comandos AT de inicialização
 // ============================================================================
 static const char* AT_INIT_SEQUENCE[] = {
-    "ATZ",    // Reset
-    "ATE0",   // Echo off
-    "ATL0",   // Linefeeds off
-    "ATS0",   // Spaces off
-    "ATH0",   // Headers off
-    "ATSP0",  // Protocol auto
+    "ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATSP0",
 };
 static const uint8_t AT_INIT_SEQUENCE_LEN = 
     sizeof(AT_INIT_SEQUENCE) / sizeof(AT_INIT_SEQUENCE[0]);
 
 // ============================================================================
-// Funções privadas — utilidades
+// Funções utilitárias
 // ============================================================================
 
 static uint32_t calculate_backoff_delay(uint8_t attempt) {
-    // Backoff exponencial: 15s * 2^attempt, com cap em 120s
     if (attempt == 0) return RECONNECT_BACKOFF_BASE_MS;
     uint32_t delay_ms = RECONNECT_BACKOFF_BASE_MS * (1UL << attempt);
     if (delay_ms > RECONNECT_BACKOFF_CAP_MS) {
@@ -93,6 +86,7 @@ static void change_state(ObdClientState new_state) {
 static void reset_state_machine() {
     response_len = 0;
     at_command_index = 0;
+    bitmask_cached = false;
     serialBT.flush();
 }
 
@@ -102,29 +96,20 @@ static void reset_state_machine() {
 
 static bool is_error_response(const char* response) {
     if (response == nullptr) return false;
-    // Erros vêm como resposta completa, não como substring.
-    // strncmp evita falsos positivos (ex.: resposta que contenha "NO DATA" como parte do valor).
     return strncmp(response, "NO DATA", 7) == 0 ||
            strncmp(response, "UNABLE TO CONNECT", 18) == 0 ||
            strncmp(response, "BUS INIT", 8) == 0 ||
            strncmp(response, "DATA ERROR", 10) == 0 ||
            strcmp(response, "?") == 0;
 }
-// Marcar como maybe_unused porque será usada em M3 (parser de PIDs em runtime).
-// Em M2 ainda não há chamada, mas mantemos a função para não retrabalhar depois.
+
 [[maybe_unused]]
 static bool is_searching(const char* response) {
-    // O ELM327 envia "SEARCHING..." enquanto tenta localizar a ECU.
-    // Não é erro — sinaliza que ainda está processando.
     return strstr(response, "SEARCHING") != nullptr;
 }
 
 static bool parse_pid_response(const char* response, ObdPid expected_pid,
                                 ObdPidResponse& out) {
-    // Resposta esperada (sem espaços, sem headers): 41 <PID> <data...>
-    // Exemplo: "4105 5A" para ECT = 90°C (0x5A = 90, 90-40 = 50°C... wait)
-    //   (ECT = A - 40, então 0x5A = 90 → 90 - 40 = 50°C)
-    
     if (response == nullptr || response[0] == '\0') {
         return false;
     }
@@ -150,8 +135,7 @@ static bool parse_pid_response(const char* response, ObdPid expected_pid,
     uint8_t data_count = 0;
     while (response[idx] != '\0' && response[idx] != '\r' &&
            data_count < 8) {
-        // Cada byte = 2 chars hex
-        if (response[idx + 1] == '\0') break;  // byte incompleto
+        if (response[idx + 1] == '\0') break;
         char byte_hex[3] = {response[idx], response[idx + 1], '\0'};
         if (sscanf(byte_hex, "%hhx", &data[data_count]) != 1) {
             break;
@@ -172,21 +156,122 @@ static bool parse_pid_response(const char* response, ObdPid expected_pid,
 }
 
 // ============================================================================
-// Funções privadas — comunicação AT
+// Funções de conversão SAE J1979
+// ============================================================================
+// Cada função valida o número de bytes e aplica a fórmula canônica.
+
+bool convert_ect(const ObdPidResponse& resp, int8_t& out_celsius) {
+    if (!resp.valid || resp.num_bytes < 1) return false;
+    // ECT = A - 40, range -40 a 215°C
+    out_celsius = static_cast<int8_t>(resp.data[0]) - 40;
+    return true;
+}
+
+bool convert_stft(const ObdPidResponse& resp, int8_t& out_percent) {
+    if (!resp.valid || resp.num_bytes < 1) return false;
+    // STFT = (A - 128) * 100/128, range -100 a +99.2%
+    int16_t value = (static_cast<int16_t>(resp.data[0]) - 128) * 100 / 128;
+    out_percent = static_cast<int8_t>(value);
+    return true;
+}
+
+bool convert_ltft(const ObdPidResponse& resp, int8_t& out_percent) {
+    if (!resp.valid || resp.num_bytes < 1) return false;
+    // LTFT = (A - 128) * 100/128 (mesma fórmula do STFT)
+    int16_t value = (static_cast<int16_t>(resp.data[0]) - 128) * 100 / 128;
+    out_percent = static_cast<int8_t>(value);
+    return true;
+}
+
+bool convert_rpm(const ObdPidResponse& resp, uint16_t& out_rpm) {
+    if (!resp.valid || resp.num_bytes < 2) return false;
+    // RPM = ((A*256) + B) / 4, range 0 a 16383.75
+    uint16_t raw = (static_cast<uint16_t>(resp.data[0]) << 8) | resp.data[1];
+    out_rpm = raw / 4;
+    return true;
+}
+
+bool convert_speed(const ObdPidResponse& resp, uint8_t& out_kmh) {
+    if (!resp.valid || resp.num_bytes < 1) return false;
+    // Speed = A km/h, range 0-255
+    out_kmh = resp.data[0];
+    return true;
+}
+
+bool convert_iat(const ObdPidResponse& resp, int8_t& out_celsius) {
+    if (!resp.valid || resp.num_bytes < 1) return false;
+    // IAT = A - 40 (mesma fórmula do ECT)
+    out_celsius = static_cast<int8_t>(resp.data[0]) - 40;
+    return true;
+}
+
+bool convert_throttle(const ObdPidResponse& resp, uint8_t& out_percent) {
+    if (!resp.valid || resp.num_bytes < 1) return false;
+    // TP = A * 100/255, range 0-100%
+    out_percent = (static_cast<uint16_t>(resp.data[0]) * 100) / 255;
+    return true;
+}
+
+bool convert_o2_voltage(const ObdPidResponse& resp, float& out_volts) {
+    if (!resp.valid || resp.num_bytes < 2) return false;
+    // O2 V = A * 0.005, range 0-1.275 V
+    // (B é o fuel trim do sensor, lido separadamente por convert_o2_trim)
+    out_volts = resp.data[0] * 0.005f;
+    return true;
+}
+
+bool convert_o2_trim(const ObdPidResponse& resp, int8_t& out_percent) {
+    if (!resp.valid || resp.num_bytes < 2) return false;
+    // O2 trim = (B - 128) * 100/128 (mesma fórmula do STFT, mas usa byte B)
+    int16_t value = (static_cast<int16_t>(resp.data[1]) - 128) * 100 / 128;
+    out_percent = static_cast<int8_t>(value);
+    return true;
+}
+
+// ============================================================================
+// Verificação de suporte (bitmask)
+// ============================================================================
+
+bool is_pid_supported(ObdPid pid, const uint8_t bitmask[4]) {
+    uint8_t pid_value = static_cast<uint8_t>(pid);
+    if (pid_value < 0x01 || pid_value > 0x20) {
+        return false;  // Fora do range da bitmask 01-20
+    }
+
+    // Mapeamento PID → byte e bit dentro do byte
+    uint8_t byte_index;
+    uint8_t bit_index;
+
+    if (pid_value <= 0x08) {
+        byte_index = 3;
+        bit_index = pid_value - 1;
+    } else if (pid_value <= 0x10) {
+        byte_index = 2;
+        bit_index = pid_value - 0x09;
+    } else if (pid_value <= 0x18) {
+        byte_index = 1;
+        bit_index = pid_value - 0x11;
+    } else {
+        byte_index = 0;
+        bit_index = pid_value - 0x19;
+    }
+
+    return (bitmask[byte_index] >> bit_index) & 0x01;
+}
+
+// ============================================================================
+// Comunicação AT
 // ============================================================================
 
 static bool send_at_command(const char* cmd, uint32_t timeout_ms) {
-    // Limpa buffer de recepção
     response_len = 0;
     response_buffer[0] = '\0';
 
     Serial.printf("[obd] >>> %s\n", cmd);
 
-    // Envia comando + \r (carriage return é o terminador do ELM327)
     serialBT.print(cmd);
     serialBT.print('\r');
 
-    // Aguarda resposta (terminada por '>' = prompt do ELM327)
     uint32_t start = millis();
     while (millis() - start < timeout_ms) {
         while (serialBT.available()) {
@@ -195,9 +280,7 @@ static bool send_at_command(const char* cmd, uint32_t timeout_ms) {
                 response_buffer[response_len++] = c;
                 response_buffer[response_len] = '\0';
             }
-            // '>' indica fim da resposta
             if (c == '>') {
-                // Remove \r finais e o '>'
                 while (response_len > 0 &&
                        (response_buffer[response_len - 1] == '\r' ||
                         response_buffer[response_len - 1] == '>')) {
@@ -207,31 +290,25 @@ static bool send_at_command(const char* cmd, uint32_t timeout_ms) {
                 return true;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));  // Não bloqueia a CPU
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    // Timeout
     Serial.printf("[obd] TIMEOUT esperando resposta de %s\n", cmd);
     response_buffer[0] = '\0';
     return false;
 }
 
 static bool send_at_init_sequence() {
-    // Envia cada comando AT em ordem. Falha no primeiro = falha geral.
     while (at_command_index < AT_INIT_SEQUENCE_LEN) {
         const char* cmd = AT_INIT_SEQUENCE[at_command_index];
         bool ok = send_at_command(cmd, AT_COMMAND_TIMEOUT_MS);
 
-        // Validação específica por comando
         if (ok) {
             if (strcmp(cmd, "ATZ") == 0) {
-                // ATZ responde com versão do firmware
                 if (strstr(response_buffer, "ELM327") == nullptr) {
                     Serial.println("[obd] WARN: ATZ não retornou versão ELM327");
-                    // Não-fatal: alguns módulos retornam strings ligeiramente diferentes
                 }
             } else {
-                // Demais comandos respondem "OK"
                 if (strstr(response_buffer, "OK") == nullptr) {
                     Serial.printf("[obd] ERRO: %s não respondeu OK\n", cmd);
                     return false;
@@ -239,19 +316,17 @@ static bool send_at_init_sequence() {
             }
             at_command_index++;
         } else {
-            // Timeout ou sem resposta
             return false;
         }
     }
-    return true;  // Todos os comandos OK
+    return true;
 }
 
 // ============================================================================
-// Funções privadas — FSM
+// FSM
 // ============================================================================
 
 static void fsm_pairing() {
-    // Tenta conectar via Bluetooth
     Serial.println("[obd] Iniciando pairing Bluetooth...");
 
     bool connected;
@@ -271,7 +346,6 @@ static void fsm_pairing() {
             Serial.printf("[obd] Pairing timeout após %u ms\n", elapsed);
             change_state(ObdClientState::RECOVERING);
         }
-        // Caso contrário, fica tentando (SerialBT.connect retry interno)
     }
 }
 
@@ -287,15 +361,34 @@ static void fsm_initializing() {
 
 static void fsm_handshaking() {
     ObdPidResponse response;
-    // Usa a versão locked porque o mutex JÁ FOI tomado por obd_client_loop.
-    // Usar obd_client_send aqui causaria deadlock.
     bool ok = obd_client_send_locked(ObdPid::SUPPORTED_PIDS_01_20, response);
 
     if (ok && response.num_bytes >= 4) {
+        // Armazena a bitmask no cache
+        memcpy(supported_bitmask, response.data, 4);
+        bitmask_cached = true;
+
         Serial.println("[obd] Handshake OK: ECU respondeu com bitmask válida");
         Serial.printf("[obd] Bitmask: %02X %02X %02X %02X\n",
-                      response.data[0], response.data[1],
-                      response.data[2], response.data[3]);
+                      supported_bitmask[0], supported_bitmask[1],
+                      supported_bitmask[2], supported_bitmask[3]);
+
+        // Log de quais PIDs do projeto são suportados
+        Serial.print("[obd] PIDs suportados do projeto: ");
+        uint8_t count = 0;
+        ObdPid project_pids[] = {
+            ObdPid::ECT, ObdPid::STFT, ObdPid::LTFT, ObdPid::RPM,
+            ObdPid::SPEED, ObdPid::IAT, ObdPid::THROTTLE_POS,
+            ObdPid::O2_SENSORS_PRESENT, ObdPid::O2_SENSOR_2
+        };
+        for (ObdPid p : project_pids) {
+            if (is_pid_supported(p, supported_bitmask)) {
+                Serial.printf("%s ", obd_pid_name(p));
+                count++;
+            }
+        }
+        Serial.printf("(%u/9)\n", count);
+
         reconnect_attempts = 0;
         change_state(ObdClientState::CONNECTED);
     } else {
@@ -311,9 +404,8 @@ static void fsm_recovering() {
     if (elapsed >= delay_ms) {
         reconnect_attempts++;
         if (reconnect_attempts > RECONNECT_MAX_ATTEMPTS) {
-            Serial.printf("[obd] WARN: %u tentativas de reconexão, falha persistente\n",
+            Serial.printf("[obd] WARN: %u tentativas, falha persistente\n",
                           reconnect_attempts);
-            // Não desiste — continua tentando a cada 120s
         }
         Serial.printf("[obd] Tentativa %u de reconexão após %u ms\n",
                       reconnect_attempts, delay_ms);
@@ -324,12 +416,12 @@ static void fsm_recovering() {
 }
 
 // ============================================================================
-// Implementação da API pública
+// API pública — conexão
 // ============================================================================
 
 bool obd_client_init() {
     if (obd_mutex != nullptr) {
-        return true;  // Já inicializado
+        return true;
     }
 
     obd_mutex = xSemaphoreCreateMutex();
@@ -338,8 +430,7 @@ bool obd_client_init() {
         return false;
     }
 
-    // Inicializa BluetoothSerial como master
-    serialBT.begin("ESP32_OBD_Client", true);  // true = isMaster
+    serialBT.begin("ESP32_OBD_Client", true);
     Serial.println("[obd] BluetoothSerial inicializado como master");
 
     current_state = ObdClientState::DISCONNECTED;
@@ -353,7 +444,6 @@ void obd_client_loop() {
     xSemaphoreTake(obd_mutex, portMAX_DELAY);
 
     uint32_t now = millis();
-    // Throttle: não processa FSM mais que 1x a cada 100ms
     if (now - last_loop_call_ms < 100) {
         xSemaphoreGive(obd_mutex);
         return;
@@ -362,31 +452,23 @@ void obd_client_loop() {
 
     switch (current_state) {
         case ObdClientState::DISCONNECTED:
-            // Imediatamente tenta pairing
             change_state(ObdClientState::PAIRING);
             break;
-
         case ObdClientState::PAIRING:
             fsm_pairing();
             break;
-
         case ObdClientState::INITIALIZING:
             fsm_initializing();
             break;
-
         case ObdClientState::HANDSHAKING:
             fsm_handshaking();
             break;
-
         case ObdClientState::CONNECTED:
-            // Estado nominal. Em M3+, aqui vai health check periódico.
-            // Por enquanto, só verifica se BT ainda conectado.
             if (!serialBT.connected()) {
                 Serial.println("[obd] BT desconectou inesperadamente");
                 change_state(ObdClientState::RECOVERING);
             }
             break;
-
         case ObdClientState::RECOVERING:
             fsm_recovering();
             break;
@@ -403,45 +485,48 @@ ObdClientState obd_client_get_state() {
     return current_state;
 }
 
+uint8_t obd_client_get_reconnect_attempts() {
+    return reconnect_attempts;
+}
+
 // ============================================================================
-// Função interna — assume que o mutex JÁ ESTÁ tomado pelo chamador.
-// Usada pela FSM (em obd_client_loop) e por obd_client_send (wrapper público).
+// API pública — leitura de PIDs (M3)
 // ============================================================================
+
 static bool obd_client_send_locked(ObdPid pid, ObdPidResponse& response) {
     if (current_state != ObdClientState::CONNECTED &&
         current_state != ObdClientState::HANDSHAKING) {
         return false;
     }
 
-    // Formata comando: 2 chars hex do PID, ex.: "0105" para PID 0x05
     char cmd[8];
     snprintf(cmd, sizeof(cmd), "%02X%02X",
              0x01, static_cast<uint8_t>(pid));
 
+    uint32_t request_start = millis();
     bool sent_ok = send_at_command(cmd, PID_RESPONSE_TIMEOUT_MS);
+    uint32_t latency = millis() - request_start;
+
+    response.latency_ms = latency;
+
     if (!sent_ok) {
         return false;
     }
 
-    // Verifica erros
     if (is_error_response(response_buffer)) {
-        Serial.printf("[obd] Resposta de erro para PID 0x%02X: %s\n",
+        Serial.printf("[obd] Erro PID 0x%02X: %s\n",
                       static_cast<uint8_t>(pid), response_buffer);
         return false;
     }
 
-    // Tenta parsear como resposta de PID
     bool parsed = parse_pid_response(response_buffer, pid, response);
     if (!parsed) {
-        Serial.printf("[obd] Falha ao parsear resposta: %s\n", response_buffer);
+        Serial.printf("[obd] Parse falhou PID 0x%02X: %s\n",
+                      static_cast<uint8_t>(pid), response_buffer);
     }
     return parsed;
 }
 
-// ============================================================================
-// Wrapper público — toma o mutex e chama a versão locked.
-// Usado por código EXTERNO à FSM (ex.: main.cpp, futura Task_OBD).
-// ============================================================================
 bool obd_client_send(ObdPid pid, ObdPidResponse& response) {
     if (obd_mutex == nullptr) return false;
 
@@ -451,6 +536,152 @@ bool obd_client_send(ObdPid pid, ObdPidResponse& response) {
     return result;
 }
 
-uint8_t obd_client_get_reconnect_attempts() {
-    return reconnect_attempts;
+bool obd_client_is_pid_supported(ObdPid pid) {
+    if (!bitmask_cached) return false;
+    return is_pid_supported(pid, supported_bitmask);
+}
+
+uint8_t obd_client_count_supported_pids() {
+    if (!bitmask_cached) return 0;
+
+    ObdPid project_pids[] = {
+        ObdPid::ECT, ObdPid::STFT, ObdPid::LTFT, ObdPid::RPM,
+        ObdPid::SPEED, ObdPid::IAT, ObdPid::THROTTLE_POS,
+        ObdPid::O2_SENSORS_PRESENT, ObdPid::O2_SENSOR_2
+    };
+
+    uint8_t count = 0;
+    for (ObdPid p : project_pids) {
+        if (is_pid_supported(p, supported_bitmask)) {
+            count++;
+        }
+    }
+    return count;
+}
+
+bool obd_client_read_all_supported_pids(ObdSnapshot& snapshot) {
+    if (obd_mutex == nullptr) return false;
+    if (current_state != ObdClientState::CONNECTED) return false;
+
+    // Inicializa snapshot
+    memset(&snapshot, 0, sizeof(snapshot));
+    snapshot.timestamp_ms = millis();
+
+    xSemaphoreTake(obd_mutex, portMAX_DELAY);
+
+    uint32_t cycle_start = millis();
+    uint8_t  attempted = 0;
+    uint8_t  succeeded = 0;
+
+    // Contador estático para sampling diferenciado (lento/eventual)
+    static uint8_t cycle_counter = 0;
+    cycle_counter++;
+    bool read_slow_pids = (cycle_counter % 5 == 0);   // 0.2 Hz
+    bool read_eventual_pids = (cycle_counter % 2 == 0); // 0.5 Hz
+
+    ObdPidResponse resp;
+
+    // ---- PIDs rápidos + médios (sempre lidos) ----
+
+    if (is_pid_supported(ObdPid::RPM, supported_bitmask)) {
+        attempted++;
+        if (obd_client_send_locked(ObdPid::RPM, resp)) {
+            if (convert_rpm(resp, snapshot.rpm)) {
+                snapshot.rpm_valid = true;
+                succeeded++;
+            }
+        }
+    }
+
+    if (is_pid_supported(ObdPid::SPEED, supported_bitmask)) {
+        attempted++;
+        if (obd_client_send_locked(ObdPid::SPEED, resp)) {
+            if (convert_speed(resp, snapshot.speed_kmh)) {
+                snapshot.speed_valid = true;
+                succeeded++;
+            }
+        }
+    }
+
+    if (is_pid_supported(ObdPid::THROTTLE_POS, supported_bitmask)) {
+        attempted++;
+        if (obd_client_send_locked(ObdPid::THROTTLE_POS, resp)) {
+            if (convert_throttle(resp, snapshot.throttle_percent)) {
+                snapshot.throttle_valid = true;
+                succeeded++;
+            }
+        }
+    }
+
+    if (is_pid_supported(ObdPid::STFT, supported_bitmask)) {
+        attempted++;
+        if (obd_client_send_locked(ObdPid::STFT, resp)) {
+            if (convert_stft(resp, snapshot.stft_percent)) {
+                snapshot.stft_valid = true;
+                succeeded++;
+            }
+        }
+    }
+
+    if (is_pid_supported(ObdPid::LTFT, supported_bitmask)) {
+        attempted++;
+        if (obd_client_send_locked(ObdPid::LTFT, resp)) {
+            if (convert_ltft(resp, snapshot.ltft_percent)) {
+                snapshot.ltft_valid = true;
+                succeeded++;
+            }
+        }
+    }
+
+    // ---- PIDs lentos (a cada 5 ciclos) ----
+
+    if (read_slow_pids) {
+        if (is_pid_supported(ObdPid::ECT, supported_bitmask)) {
+            attempted++;
+            if (obd_client_send_locked(ObdPid::ECT, resp)) {
+                if (convert_ect(resp, snapshot.ect_celsius)) {
+                    snapshot.ect_valid = true;
+                    succeeded++;
+                }
+            }
+        }
+
+        if (is_pid_supported(ObdPid::IAT, supported_bitmask)) {
+            attempted++;
+            if (obd_client_send_locked(ObdPid::IAT, resp)) {
+                if (convert_iat(resp, snapshot.iat_celsius)) {
+                    snapshot.iat_valid = true;
+                    succeeded++;
+                }
+            }
+        }
+    }
+
+    // ---- PIDs eventuais (a cada 2 ciclos) ----
+
+    if (read_eventual_pids) {
+        if (is_pid_supported(ObdPid::O2_SENSOR_2, supported_bitmask)) {
+            attempted++;
+            if (obd_client_send_locked(ObdPid::O2_SENSOR_2, resp)) {
+                if (convert_o2_voltage(resp, snapshot.o2_voltage)) {
+                    snapshot.o2_v_valid = true;
+                    succeeded++;
+                }
+                if (convert_o2_trim(resp, snapshot.o2_trim_percent)) {
+                    snapshot.o2_trim_valid = true;
+                }
+            }
+        }
+    }
+
+    snapshot.pids_attempted = attempted;
+    snapshot.pids_succeeded = succeeded;
+    snapshot.cycle_latency_ms = millis() - cycle_start;
+
+    xSemaphoreGive(obd_mutex);
+
+    Serial.printf("[obd] ciclo: %u/%u PIDs OK, latência %u ms\n",
+                  succeeded, attempted, snapshot.cycle_latency_ms);
+
+    return (succeeded > 0);
 }
