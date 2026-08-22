@@ -2,13 +2,12 @@
  * @file main.cpp
  * @brief Ponto de entrada do firmware — Sistema de Diagnóstico OBD-II.
  *
- * Milestone M3: leitura cíclica de PIDs a 1 Hz com display live.
- * O loop() agora faz polling da FSM OBD e, quando CONNECTED, lê os
- * PIDs suportados a cada 1 segundo e atualiza o display com os valores.
+ * Milestone M4: integração do motor de regras. A cada snapshot OBD,
+ * rule_engine_evaluate() é chamado e o display reage à severidade.
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
  * @license MIT
- * @version 0.3.0
+ * @version 0.4.0
  */
 
 #include <Arduino.h>
@@ -16,10 +15,10 @@
 #include "pinout.h"
 #include "display.h"
 #include "obd_client.h"
+#include "rule_engine.h"
 
 static const char* FIRMWARE_VERSION = PROJECT_VERSION;
 
-// Período de sampling: 1 Hz (limitação do ELM327 Bluetooth)
 static const uint32_t SAMPLING_PERIOD_MS = 1000;
 
 // ============================================================================
@@ -33,7 +32,7 @@ void setup() {
     Serial.println("========================================");
     Serial.println("OBD Diagnostic v" + String(FIRMWARE_VERSION));
     Serial.println("UNIFEI / PET-TEC / UNIGOU 2026");
-    Serial.println("Fase: M3 — Leitura de PIDs OBD-II");
+    Serial.println("Fase: M4 — Motor de regras + FSM + histerese");
     Serial.println("========================================");
 
     pinMode(PIN_LED_STATUS, OUTPUT);
@@ -46,83 +45,132 @@ void setup() {
         DisplayPayload p = {};
         strncpy(p.line1, "OBD Diagnostic", sizeof(p.line1) - 1);
         strncpy(p.line2, FIRMWARE_VERSION, sizeof(p.line2) - 1);
-        strncpy(p.line3, "Boot M3...",     sizeof(p.line3) - 1);
+        strncpy(p.line3, "Boot M4...",     sizeof(p.line3) - 1);
         display_render(ScreenId::BOOT, p);
     }
 
     bool obd_ok = obd_client_init();
     Serial.printf("[boot] obd_client_init=%s\n", obd_ok ? "OK" : "FAIL");
 
+    bool rules_ok = rule_engine_init();
+    Serial.printf("[boot] rule_engine_init=%s\n", rules_ok ? "OK" : "FAIL");
+
     delay(2000);
 }
 
 // ============================================================================
-// LOOP — gerencia FSM OBD e faz polling de PIDs a 1 Hz
+// LOOP
 // ============================================================================
 void loop() {
     static uint32_t last_sample_ms = 0;
-    static ObdSnapshot last_snapshot = {};
+    static ObdSnapshot last_obd = {};
+    static RuleEngineSnapshot last_rules = {};
 
     obd_client_loop();
 
-    ObdClientState state = obd_client_get_state();
+    ObdClientState obd_state = obd_client_get_state();
     uint32_t now = millis();
 
-    // Atualiza display conforme estado
     DisplayPayload p = {};
 
-    if (state == ObdClientState::CONNECTED) {
-        // Sampling a 1 Hz quando conectado
+    if (obd_state == ObdClientState::CONNECTED) {
+        // Sampling a 1 Hz
         if (now - last_sample_ms >= SAMPLING_PERIOD_MS) {
             last_sample_ms = now;
-            bool ok = obd_client_read_all_supported_pids(last_snapshot);
-
+            bool ok = obd_client_read_all_supported_pids(last_obd);
             if (ok) {
-                // Log estruturado (CSV-like) para análise futura
-                Serial.printf("DATA,t=%u,ect=%d,rpm=%u,stft=%d,ltft=%d,speed=%u\n",
-                              last_snapshot.timestamp_ms,
-                              last_snapshot.ect_valid ? last_snapshot.ect_celsius : -999,
-                              last_snapshot.rpm_valid ? last_snapshot.rpm : 0,
-                              last_snapshot.stft_valid ? last_snapshot.stft_percent : -999,
-                              last_snapshot.ltft_valid ? last_snapshot.ltft_percent : -999,
-                              last_snapshot.speed_valid ? last_snapshot.speed_kmh : 0);
+                rule_engine_evaluate(last_obd, last_rules);
             }
         }
 
-        // Renderiza tela NORMAL com valores live
-        snprintf(p.line1, sizeof(p.line1), "ECT:%dC RPM:%u",
-                 last_snapshot.ect_valid ? last_snapshot.ect_celsius : 0,
-                 last_snapshot.rpm_valid ? last_snapshot.rpm : 0);
-        snprintf(p.line2, sizeof(p.line2), "STFT:%d%% LTFT:%d%%",
-                 last_snapshot.stft_valid ? last_snapshot.stft_percent : 0,
-                 last_snapshot.ltft_valid ? last_snapshot.ltft_percent : 0);
-        snprintf(p.line3, sizeof(p.line3), "SPD:%u TP:%u%%",
-                 last_snapshot.speed_valid ? last_snapshot.speed_kmh : 0,
-                 last_snapshot.throttle_valid ? last_snapshot.throttle_percent : 0);
-        snprintf(p.line4, sizeof(p.line4), "PIDs:%u/%u OK",
-                 last_snapshot.pids_succeeded,
-                 last_snapshot.pids_attempted);
-        display_render(ScreenId::NORMAL, p);
+        // Renderiza display conforme severidade global
+        Severity overall = last_rules.overall;
 
-        // LED: pisca lento quando conectado
-        digitalWrite(PIN_LED_STATUS, (now / 500) % 2);
+        if (overall == Severity::CRITICAL) {
+            // Tela CRITICAL: mostra pior subsistema
+            RuleResult* worst = &last_rules.thermostat;
+            if (last_rules.combustion.severity == Severity::CRITICAL)
+                worst = &last_rules.combustion;
+            if (last_rules.catalytic.severity == Severity::CRITICAL)
+                worst = &last_rules.catalytic;
 
-    } else if (state == ObdClientState::PAIRING ||
-               state == ObdClientState::INITIALIZING ||
-               state == ObdClientState::HANDSHAKING) {
+            strncpy(p.line1, worst->dtc_code, sizeof(p.line1) - 1);
+            strncpy(p.line2, worst->message, sizeof(p.line2) - 1);
+            // Subtipo para combustão
+            if (worst->subsystem == SubsystemId::COMBUSTION) {
+                snprintf(p.line3, sizeof(p.line3), "Sub: %d",
+                         static_cast<int>(worst->combustion_subtype));
+            } else {
+                p.line3[0] = '\0';
+            }
+            snprintf(p.line4, sizeof(p.line4), "t=%us", now / 1000);
+            display_render(ScreenId::CRITICAL, p);
+
+            // LED contínuo
+            digitalWrite(PIN_LED_STATUS, HIGH);
+
+        } else if (overall == Severity::WARNING) {
+            // Tela WARNING
+            RuleResult* worst = &last_rules.thermostat;
+            if (last_rules.combustion.severity == Severity::WARNING)
+                worst = &last_rules.combustion;
+            if (last_rules.catalytic.severity == Severity::WARNING)
+                worst = &last_rules.catalytic;
+
+            snprintf(p.line1, sizeof(p.line1), "WARN: %s",
+                     worst->subsystem == SubsystemId::THERMOSTAT ? "Termo" :
+                     worst->subsystem == SubsystemId::COMBUSTION ? "Comb" : "Cat");
+            strncpy(p.line2, worst->message, sizeof(p.line2) - 1);
+            snprintf(p.line3, sizeof(p.line3), "ECT=%d RPM=%u",
+                     last_obd.ect_valid ? last_obd.ect_celsius : 0,
+                     last_obd.rpm_valid ? last_obd.rpm : 0);
+            snprintf(p.line4, sizeof(p.line4), "STFT=%d%% LTFT=%d%%",
+                     last_obd.stft_valid ? last_obd.stft_percent : 0,
+                     last_obd.ltft_valid ? last_obd.ltft_percent : 0);
+            display_render(ScreenId::WARNING, p);
+
+            // LED: 2 piscadas curtas, pausa, repete
+            uint32_t phase = (now % 1500);
+            if (phase < 200) digitalWrite(PIN_LED_STATUS, HIGH);
+            else if (phase < 400) digitalWrite(PIN_LED_STATUS, LOW);
+            else if (phase < 600) digitalWrite(PIN_LED_STATUS, HIGH);
+            else digitalWrite(PIN_LED_STATUS, LOW);
+
+        } else {
+            // Tela NORMAL (OK ou SUSPECT)
+            snprintf(p.line1, sizeof(p.line1), "ECT:%dC RPM:%u",
+                     last_obd.ect_valid ? last_obd.ect_celsius : 0,
+                     last_obd.rpm_valid ? last_obd.rpm : 0);
+            snprintf(p.line2, sizeof(p.line2), "STFT:%d%% LTFT:%d%%",
+                     last_obd.stft_valid ? last_obd.stft_percent : 0,
+                     last_obd.ltft_valid ? last_obd.ltft_percent : 0);
+            snprintf(p.line3, sizeof(p.line3), "SPD:%u TP:%u%%",
+                     last_obd.speed_valid ? last_obd.speed_kmh : 0,
+                     last_obd.throttle_valid ? last_obd.throttle_percent : 0);
+            snprintf(p.line4, sizeof(p.line4), "PIDs:%u/%u Sev:%d",
+                     last_obd.pids_succeeded,
+                     last_obd.pids_attempted,
+                     static_cast<int>(overall));
+            display_render(ScreenId::NORMAL, p);
+
+            // LED: pisca lento (1 Hz) quando OK
+            digitalWrite(PIN_LED_STATUS, (now / 500) % 2);
+        }
+
+    } else if (obd_state == ObdClientState::PAIRING ||
+               obd_state == ObdClientState::INITIALIZING ||
+               obd_state == ObdClientState::HANDSHAKING) {
         strncpy(p.line1, "Aguardando", sizeof(p.line1) - 1);
         strncpy(p.line2, "ELM327...", sizeof(p.line2) - 1);
         display_render(ScreenId::WAITING, p);
+        digitalWrite(PIN_LED_STATUS, (now / 100) % 2);
 
-        digitalWrite(PIN_LED_STATUS, (now / 100) % 2);  // 5 Hz
-
-    } else {  // DISCONNECTED ou RECOVERING
+    } else {
         strncpy(p.line1, "Sem conexao", sizeof(p.line1) - 1);
         strncpy(p.line2, "Verifique ELM327", sizeof(p.line2) - 1);
         snprintf(p.line3, sizeof(p.line3), "Tentativas: %u",
                  obd_client_get_reconnect_attempts());
         display_render(ScreenId::NO_CONN, p);
-
-        digitalWrite(PIN_LED_STATUS, HIGH);  // Solid
+        digitalWrite(PIN_LED_STATUS, HIGH);
     }
 }
