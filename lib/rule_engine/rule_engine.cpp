@@ -175,11 +175,13 @@ static Severity evaluate_thermostat(const ObdSnapshot& obd,
 
 static void thermostat_fsm(const ObdSnapshot& obd, RuleResult& out,
                             ThermostatState& state) {
-    Severity evaluated = evaluate_thermostat(obd, state);
-    state.current_severity = apply_hysteresis(state.current_severity,
-                                              evaluated,
-                                              state.confirmation_counter);
-    state.last_eval_ms = millis();
+    if (obd.ect_valid) {
+        Severity evaluated = evaluate_thermostat(obd, state);
+        state.current_severity = apply_hysteresis(state.current_severity,
+                                                  evaluated,
+                                                  state.confirmation_counter);
+        state.last_eval_ms = millis();
+    }
 
     out.severity = state.current_severity;
     out.subsystem = SubsystemId::THERMOSTAT;
@@ -187,7 +189,7 @@ static void thermostat_fsm(const ObdSnapshot& obd, RuleResult& out,
 
     switch (state.current_severity) {
         case Severity::CRITICAL:
-            if (obd.ect_valid && obd.ect_celsius < ECT_CRITICAL_BELOW_C) {
+            if (obd.ect_valid ? (obd.ect_celsius < ECT_CRITICAL_BELOW_C) : (state.ect_peak_since_boot < ECT_CRITICAL_BELOW_C)) {
                 strncpy(out.dtc_code, "P0128", sizeof(out.dtc_code) - 1);
                 strncpy(out.message, "Termostato aberto", sizeof(out.message) - 1);
             } else {
@@ -293,20 +295,22 @@ static Severity evaluate_combustion(const ObdSnapshot& obd,
 
 static void combustion_fsm(const ObdSnapshot& obd, RuleResult& out,
                             CombustionState& state) {
-    CombustionFaultType subtype;
-    Severity evaluated = evaluate_combustion(obd, state, subtype);
-    state.current_severity = apply_hysteresis(state.current_severity,
-                                              evaluated,
-                                              state.confirmation_counter);
+    if (obd.stft_valid && obd.ltft_valid && obd.rpm_valid) {
+        CombustionFaultType subtype;
+        Severity evaluated = evaluate_combustion(obd, state, subtype);
+        state.current_severity = apply_hysteresis(state.current_severity,
+                                                  evaluated,
+                                                  state.confirmation_counter);
 
-    // Subtipo só é válido em CRITICAL
-    if (state.current_severity == Severity::CRITICAL) {
-        state.current_subtype = subtype;
-    } else {
-        state.current_subtype = CombustionFaultType::NONE;
+        // Subtipo só é válido em CRITICAL
+        if (state.current_severity == Severity::CRITICAL) {
+            state.current_subtype = subtype;
+        } else {
+            state.current_subtype = CombustionFaultType::NONE;
+        }
+
+        state.last_eval_ms = millis();
     }
-
-    state.last_eval_ms = millis();
 
     out.severity = state.current_severity;
     out.subsystem = SubsystemId::COMBUSTION;
@@ -314,12 +318,12 @@ static void combustion_fsm(const ObdSnapshot& obd, RuleResult& out,
 
     switch (state.current_severity) {
         case Severity::CRITICAL: {
-            bool is_lean = (subtype == CombustionFaultType::LEAN_VACUUM_LEAK ||
-                            subtype == CombustionFaultType::LEAN_INJECTOR ||
-                            subtype == CombustionFaultType::LEAN_INDETERMINATE);
+            bool is_lean = (state.current_subtype == CombustionFaultType::LEAN_VACUUM_LEAK ||
+                            state.current_subtype == CombustionFaultType::LEAN_INJECTOR ||
+                            state.current_subtype == CombustionFaultType::LEAN_INDETERMINATE);
             strncpy(out.dtc_code, is_lean ? "P0171" : "P0172",
                     sizeof(out.dtc_code) - 1);
-            const char* sub = combustion_subtype_str(subtype);
+            const char* sub = combustion_subtype_str(state.current_subtype);
             snprintf(out.message, sizeof(out.message), "%s", sub);
             break;
         }
@@ -354,8 +358,6 @@ static uint8_t count_o2_transitions(CatalyticState& state) {
     uint8_t transitions = 0;
 
     // Percorre o buffer circular em ordem temporal
-    // Para simplicidade, assumimos que as amostras estão em ordem
-    // (vamos iterar do mais antigo para o mais novo)
     for (uint8_t i = 1; i < state.o2_count; i++) {
         uint8_t idx_curr = (state.o2_idx + 16 - state.o2_count + i) % 16;
         uint8_t idx_prev = (state.o2_idx + 16 - state.o2_count + i - 1) % 16;
@@ -398,11 +400,13 @@ static Severity evaluate_catalytic(const ObdSnapshot& obd,
 
 static void catalytic_fsm(const ObdSnapshot& obd, RuleResult& out,
                            CatalyticState& state) {
-    Severity evaluated = evaluate_catalytic(obd, state);
-    state.current_severity = apply_hysteresis(state.current_severity,
-                                              evaluated,
-                                              state.confirmation_counter);
-    state.last_eval_ms = millis();
+    if (obd.o2_v_valid) {
+        Severity evaluated = evaluate_catalytic(obd, state);
+        state.current_severity = apply_hysteresis(state.current_severity,
+                                                  evaluated,
+                                                  state.confirmation_counter);
+        state.last_eval_ms = millis();
+    }
 
     out.severity = state.current_severity;
     out.subsystem = SubsystemId::CATALYTIC;
