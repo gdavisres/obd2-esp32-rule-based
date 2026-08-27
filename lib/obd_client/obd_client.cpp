@@ -238,25 +238,13 @@ bool is_pid_supported(ObdPid pid, const uint8_t bitmask[4]) {
         return false;  // Fora do range da bitmask 01-20
     }
 
-    // Mapeamento PID → byte e bit dentro do byte
-    uint8_t byte_index;
-    uint8_t bit_index;
+    // Mapeamento SAE J1979 padrão:
+    // 4 bytes: A (0x01..0x08), B (0x09..0x10), C (0x11..0x18), D (0x19..0x20)
+    // Bit 7 (MSB) é o primeiro PID do byte, bit 0 (LSB) é o último
+    uint8_t byte_index = (pid_value - 1) / 8;
+    uint8_t bit_offset = 7 - ((pid_value - 1) % 8);
 
-    if (pid_value <= 0x08) {
-        byte_index = 3;
-        bit_index = pid_value - 1;
-    } else if (pid_value <= 0x10) {
-        byte_index = 2;
-        bit_index = pid_value - 0x09;
-    } else if (pid_value <= 0x18) {
-        byte_index = 1;
-        bit_index = pid_value - 0x11;
-    } else {
-        byte_index = 0;
-        bit_index = pid_value - 0x19;
-    }
-
-    return (bitmask[byte_index] >> bit_index) & 0x01;
+    return (bitmask[byte_index] & (1 << bit_offset)) != 0;
 }
 
 // ============================================================================
@@ -563,9 +551,9 @@ bool obd_client_read_all_supported_pids(ObdSnapshot& snapshot) {
     if (obd_mutex == nullptr) return false;
     if (current_state != ObdClientState::CONNECTED) return false;
 
-    // Inicializa snapshot
-    memset(&snapshot, 0, sizeof(snapshot));
     snapshot.timestamp_ms = millis();
+    snapshot.pids_attempted = 0;
+    snapshot.pids_succeeded = 0;
 
     xSemaphoreTake(obd_mutex, portMAX_DELAY);
 

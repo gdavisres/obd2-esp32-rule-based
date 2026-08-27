@@ -1,0 +1,14 @@
+{
+    "name": "rule_engine",
+    "version": "0.1.0",
+    "description": "Rule-based diagnostic engine with FSM and hysteresis",
+    "authors": [
+        {
+            "name": "Rafael Lucas Junqueira Brigagão",
+            "email": "rafaelljbrigagao@gmail.com"
+        }
+    ],
+    "license": "MIT",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}
