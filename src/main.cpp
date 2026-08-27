@@ -7,7 +7,7 @@
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
  * @license MIT
- * @version 0.4.0
+ * @version 0.5.0
  */
 
 #include <Arduino.h>
