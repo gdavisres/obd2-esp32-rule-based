@@ -196,6 +196,70 @@ static void render_normal(const DisplayPayload& p) {
     display.display();
 }
 
+static void render_warning(const DisplayPayload& p) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+
+    // Faixa superior indicando WARNING (texto invertido)
+    display.fillRect(0, 0, SCREEN_WIDTH, 12, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK);
+    display.setTextSize(1);
+    display.setCursor(2, 2);
+    display.print("! AVISO !");
+    display.setTextColor(SSD1306_WHITE);
+
+    // 3 linhas de detalhe
+    display.setTextSize(1);
+    display.setCursor(0, 18);
+    display.print(p.line1);
+
+    display.setCursor(0, 32);
+    display.print(p.line2);
+
+    display.setCursor(0, 46);
+    display.print(p.line3);
+
+    // Linha inferior de status
+    display.drawLine(0, 56, SCREEN_WIDTH, 56, SSD1306_WHITE);
+    display.setCursor(0, 57);
+    display.print(p.line4);
+
+    display.display();
+}
+
+static void render_critical(const DisplayPayload& p) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+
+    // Borda espessa (4px) indicando CRITICAL
+    display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+    display.drawRect(1, 1, SCREEN_WIDTH - 2, SCREEN_HEIGHT - 2, SSD1306_WHITE);
+
+    // DTC code em fonte grande (centralizado)
+    display.setTextSize(2);
+    int16_t  x1, y1;
+    uint16_t w, h;
+    display.getTextBounds(p.line1, 0, 0, &x1, &y1, &w, &h);
+    display.setCursor((SCREEN_WIDTH - w) / 2, 8);
+    display.print(p.line1);  // DTC code (ex.: "P0128")
+
+    // Mensagem descritiva (fonte 1)
+    display.setTextSize(1);
+    display.getTextBounds(p.line2, 0, 0, &x1, &y1, &w, &h);
+    display.setCursor((SCREEN_WIDTH - w) / 2, 32);
+    display.print(p.line2);  // ex.: "Termostato aberto"
+
+    // Subtipo (se houver)
+    display.setCursor(0, 48);
+    display.print(p.line3);
+
+    // Timestamp
+    display.setCursor(0, 56);
+    display.print(p.line4);
+
+    display.display();
+}
+
 // ============================================================================
 // Implementação da API pública
 // ============================================================================
@@ -239,27 +303,30 @@ bool display_render(ScreenId id, const DisplayPayload& payload) {
         return false;
     }
 
-   switch (id) {
-    case ScreenId::BOOT:
-        render_boot(payload);
-        break;
-    case ScreenId::WAITING:
-        render_waiting(payload);
-        break;
-    case ScreenId::NO_CONN:
-        render_no_conn(payload);
-        break;
-    case ScreenId::NORMAL:
-        render_normal(payload);
-        break;
-    // WARNING e CRITICAL ainda não implementados (M5)
-    case ScreenId::WARNING:
-    case ScreenId::CRITICAL:
-    default:
-        Serial.printf("[display] WARN: tela %d nao implementada em M3\n",
-                      static_cast<int>(id));
-        break;
-}
+    switch (id) {
+        case ScreenId::BOOT:
+            render_boot(payload);
+            break;
+        case ScreenId::WAITING:
+            render_waiting(payload);
+            break;
+        case ScreenId::NO_CONN:
+            render_no_conn(payload);
+            break;
+        case ScreenId::NORMAL:
+            render_normal(payload);
+            break;
+        case ScreenId::WARNING:
+            render_warning(payload);
+            break;
+        case ScreenId::CRITICAL:
+            render_critical(payload);
+            break;
+        default:
+            Serial.printf("[display] WARN: tela %d invalida\n",
+                        static_cast<int>(id));
+            break;
+    }
 
     xSemaphoreGive(display_mutex);
     return true;

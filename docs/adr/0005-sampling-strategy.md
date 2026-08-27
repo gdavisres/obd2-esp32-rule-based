@@ -1,7 +1,7 @@
 # ADR-0005: Estratégia de sampling de PIDs
 
 * **Status**: accepted
-* **Data**: 12/08/206
+* **Data**: 12/08/2026
 * **Decisor**: Vitor Fernandes da Silva
 
 ## Contexto
