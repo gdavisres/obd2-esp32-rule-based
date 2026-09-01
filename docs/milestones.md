@@ -1,15 +1,21 @@
 # Milestones do Projeto
 
-| Milestone | Descricao | Status | Data inicio | Data fim | Horas previstas | Horas reais |
-| --- | --- | --- | --- | --- | --- | --- |
-| Etapa 0   | Setup PlatformIO + VS Code          | ✅ done       | 12-07-2026  | 12-07-2026 | 2–4 h           | 2h          |
-| Etapa 1   | Git/GitHub repository               | ✅ done       | 12-07-2026  | 12-07-2026 | 2–3 h           | 2h          |
-| M0        | Hello World + boot no OLED + LED    | ✅ done       | 13-07-2026  | 13-07-2026 | 2–4 h           | 2h          |
-| M1        | SSD1306 driver + telas de status    | ✅ done       | 19-07-2026  | 19-07-2026 | 4–6 h           | 4h          |
-| M2        | Bluetooth SPP + init ELM327 V1.5    | ✅ done       | 07-08-2026  | 11-08-2026 | 8–12 h          | 12h         |
-| M3        | Camada OBD-II + parser de PIDs      | 🚧 next       | - | - | 8-10 h | - |
-| M4 | Motor de regras + FSM + histerese | pendente | - | - | 12-16 h | - |
-| M5 | Interface OLED + padroes de LED | pendente | - | - | 6-8 h | - |
-| M6 | Validacao com simulador | pendente | - | - | 8-10 h | - |
+Estado consolidado do firmware em 2026-09.
 
-Total previsto: 48-66 h focadas + 30% overhead = 62-86 h reais. Ritmo academico: 10-15 h/semana -> 5-7 semanas.
+| Milestone | Descrição | Status atual | Evidência principal |
+| --- | --- | --- | --- |
+| Etapa 0 | Setup PlatformIO + VS Code | ✅ concluído | `platformio.ini` |
+| Etapa 1 | Estrutura Git/GitHub | ✅ concluído | repositório versionado |
+| M0 | Boot inicial + LED/OLED smoke test | ✅ concluído | `src/main.cpp` (boot e logs) |
+| M1 | Driver SSD1306 + telas base | ✅ concluído | `lib/display/*` |
+| M2 | Bluetooth SPP + init ELM327 | ✅ concluído | `lib/obd_client/*` (FSM conexão + sequência AT) |
+| M3 | Camada OBD-II + parser + snapshot | ✅ concluído | `include/obd_pids.h`, `lib/obd_client/obd_client.cpp` |
+| M4 | Motor de regras (3 subsistemas) + histerese | ✅ concluído | `lib/rule_engine/*`, `include/thresholds.h` |
+| M5 | Integração final UI/alertas e polimento operacional | 🚧 em andamento | integração ativa em `src/main.cpp` |
+| M6 | Campanha de validação e consolidação de métricas | ⏳ pendente | usar `scripts/elm327_simulator.py` e plano em `docs/test_plan.md` |
+
+## Observações
+
+- A versão de build atual está em `PROJECT_VERSION="0.5.0"` (`platformio.ini`).
+- O código já integra leitura OBD, avaliação por regras e renderização por severidade.
+- A validação formal de desempenho/acurácia (M6) ainda não está fechada em relatório final.

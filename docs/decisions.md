@@ -1,33 +1,27 @@
 # Architecture Decision Records (ADRs)
 
-Índice de decisões arquiteturais do projeto. Cada ADR é um arquivo `emocs/adr/NNNN-titulo.md` com a estrutura:
-contexto, decisão, justificativa, consequências, alternativas, status.
+Índice das decisões arquiteturais do projeto. Cada ADR fica em `docs/adr/NNNN-titulo.md`.
 
 ## Lista de ADRs
 
-| # | Título                                                        | Status   | Data       |
-|---|---------------------------------------------------------------|----------|------------|
-| 1 | Escolha do toolchain (PlatformIO+Arduino)                     | accepted | 12/07/2026 |
-| 2 | Licença MIT vs GPL-3                                          | accepted | 12/07/2026 |
-| 3 | Escolha da biblioteca de display (Adafruit_SSD1306 vs U8g2)   | accepted | 19/07/2026 |
-| 4 | Estratégia de reconexão — backoff exponencial                 | accepted | 07/08/2026 |
+| # | Título | Status | Data |
+|---|---|---|---|
+| 1 | Escolha do toolchain (PlatformIO + Arduino-ESP32) | accepted | 12/07/2026 |
+| 2 | Licença MIT vs GPL-3 | accepted | 12/07/2026 |
+| 3 | Biblioteca de display (Adafruit_SSD1306 vs U8g2) | accepted | 19/07/2026 |
+| 4 | Estratégia de reconexão com backoff exponencial | accepted | 07/08/2026 |
+| 5 | Estratégia de sampling de PIDs | accepted | 12/08/2026 |
+| 6 | Estratégia de histerese (N leituras consecutivas) | accepted | 18/08/2026 |
 
 ## Como criar um novo ADR
 
-1. Copie o template de `docs/adr/0001-toolchain-platformio.md`.
-2. Nomeie como `NNNN-titulo-curto.md` (próximo número sequencial).
-3. Preencha contexto, decisão, justificativa, consequências, alternativas.
-4. Status inicial: `proposed`.
-5. Após revisão/orientação: mude para `accepted`.
-6. Se for substituída no futuro: marque como `deprecated` e crie um novo ADR referenciando o anterior.
+1. Copiar um ADR existente em `docs/adr/` como base.
+2. Nomear como `NNNN-titulo-curto.md` com próximo número sequencial.
+3. Preencher contexto, decisão, justificativa, consequências e alternativas.
+4. Definir status inicial como `proposed`.
+5. Após revisão técnica, atualizar para `accepted`.
+6. Se substituído, marcar como `deprecated` e referenciar o ADR novo.
 
 ## Quando criar um ADR
 
-Crie um ADR sempre que tomar uma decisão que:
-
-- Afete a estrutura do firmware (ex.: escolha de biblioteca, padrão decomunicação entre tasks, estratégia de FSM).
-- Tenha trade-offs não-triviais (ex.: performance vs. consumo, histerrese vs. média móvel).
-- Possa ser questionada no futuro (ex.: "por que MIT e não GPL-3?").
-- Seja referenciada no relatório PET-TEC.
-
-NÃO crie ADR para decisões triviais (ex.: nome de variável, cor de LED).
+Criar ADR para decisões com impacto estrutural, trade-offs relevantes ou alto potencial de reuso/discussão futura (por exemplo: estratégia de comunicação, modelagem de FSM, critérios de detecção).
