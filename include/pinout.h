@@ -11,6 +11,7 @@
  * Convenção: PIN_<SUBSISTEMA>_<FUNÇÃO>. Ex.: PIN_I2C_SDA, PIN_LED_STATUS.
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
+ * @author Rafael (PET-TEC UNIFEI)
  * @license MIT
  * @version 0.1.0
  */

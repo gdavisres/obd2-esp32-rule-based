@@ -1,0 +1,14 @@
+{
+    "name": "led_indicator",
+    "version": "0.1.0",
+    "description": "LED blink pattern indicator with FreeRTOS task",
+    "authors": [
+        {
+            "name": "Rafael",
+            "email": "rafael@unifei.edu.br"
+        }
+    ],
+    "license": "MIT",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}
