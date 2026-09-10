@@ -53,13 +53,36 @@ static uint32_t compute_hash(const DisplayPayload& p) {
 // Funções de desenho auxiliares
 // ============================================================================
 
+// Ajusta tamanho da fonte para caber na largura especificada
+static uint8_t fit_text_size(const char* text, uint8_t preferred_size, uint16_t max_width) {
+    if (text == nullptr || text[0] == '\0') {
+        return preferred_size;
+    }
+
+    int16_t x1, y1;
+    uint16_t w, h;
+    uint8_t size = preferred_size;
+
+    while (size > 1) {
+        display.setTextSize(size);
+        display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+        if (w <= max_width) {
+            break;
+        }
+        --size;
+    }
+
+    return size;
+}
+
 // Centraliza texto horizontalmente, retorna posição X
 static int16_t center_text_x(const char* text, uint8_t text_size = 1) {
     int16_t  x1, y1;
     uint16_t w, h;
     display.setTextSize(text_size);
     display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
-    return (SCREEN_WIDTH - w) / 2;
+    int16_t x = (SCREEN_WIDTH - static_cast<int16_t>(w)) / 2;
+    return (x < 0) ? 0 : x;
 }
 
 // Desenha badge retangular com texto (para títulos)
@@ -82,17 +105,19 @@ static void draw_badge(const char* text, uint16_t bg_color) {
 
 static void render_boot(const DisplayPayload& p) {
     display.clearDisplay();
+    display.setTextWrap(false);
     display.setTextColor(SSD1306_WHITE);
 
-    // Título centralizado, fonte 2
-    display.setTextSize(2);
-    int16_t x = center_text_x(p.line1, 2);
-    display.setCursor(x, 4);
+    // Título centralizado (ajusta automaticamente entre fonte 2 e 1 conforme largura)
+    uint8_t sz = fit_text_size(p.line1, 2, SCREEN_WIDTH - 4);
+    display.setTextSize(sz);
+    int16_t x = center_text_x(p.line1, sz);
+    display.setCursor(x, (sz == 2) ? 6 : 10);
     display.print(p.line1);
 
     // Versão centralizada
     display.setTextSize(1);
-    x = center_text_x(p.line2);
+    x = center_text_x(p.line2, 1);
     display.setCursor(x, 30);
     display.print(p.line2);
 
@@ -105,6 +130,7 @@ static void render_boot(const DisplayPayload& p) {
 
 static void render_waiting(const DisplayPayload& p) {
     display.clearDisplay();
+    display.setTextWrap(false);
     display.setTextColor(SSD1306_WHITE);
 
     // Badge "AGUARDANDO" no topo
@@ -135,29 +161,34 @@ static void render_waiting(const DisplayPayload& p) {
 
 static void render_no_conn(const DisplayPayload& p) {
     display.clearDisplay();
+    display.setTextWrap(false);
     display.setTextColor(SSD1306_WHITE);
 
-    // Ícone "X" grande (24x24) à esquerda, com borda
-    display.drawRect(2, 2, 26, 26, SSD1306_WHITE);
-    display.drawLine( 6,  6, 22, 22, SSD1306_WHITE);
-    display.drawLine(22,  6,  6, 22, SSD1306_WHITE);
+    // Badge "SEM CONEXAO" no topo (padrão consistente com M5)
+    draw_badge("SEM CONEXAO", SSD1306_WHITE);
 
-    // Mensagem à direita
-    display.setTextSize(2);
-    display.setCursor(34, 4);
+    // Ícone "X" (18x18 px) com borda à esquerda
+    display.drawRect(4, 18, 18, 18, SSD1306_WHITE);
+    display.drawLine(7, 21, 18, 32, SSD1306_WHITE);
+    display.drawLine(18, 21, 7, 32, SSD1306_WHITE);
+
+    // Mensagens à direita do ícone (fonte 1 para caber nos 128 px sem quebra de linha)
+    display.setTextSize(1);
+    display.setCursor(28, 18);
     display.print(p.line1);  // "Sem conexao"
 
-    display.setTextSize(1);
-    display.setCursor(34, 22);
+    display.setCursor(28, 28);
     display.print(p.line2);  // "Verifique ELM327"
 
-    // Detalhe abaixo
-    display.setCursor(0, 38);
+    // Detalhe abaixo do ícone
+    display.setCursor(4, 40);
     display.print(p.line3);  // "Tentativas: N"
 
+    // Linha separadora do rodapé
+    display.drawLine(0, 52, SCREEN_WIDTH, 52, SSD1306_WHITE);
+
     // Footer com timestamp
-    display.drawLine(0, 54, SCREEN_WIDTH, 54, SSD1306_WHITE);
-    display.setCursor(0, 56);
+    display.setCursor(4, 55);
     display.print(p.line4);  // "t=Xs"
 
     display.display();
@@ -279,6 +310,8 @@ bool display_init() {
         Serial.println(F("[display] ERRO: SSD1306 nao encontrado"));
         return false;
     }
+
+    display.setTextWrap(false);
 
     display_mutex = xSemaphoreCreateMutex();
     if (display_mutex == nullptr) {
