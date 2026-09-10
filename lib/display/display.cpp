@@ -222,20 +222,31 @@ static void render_normal(const DisplayPayload& p) {
 
 static void render_warning(const DisplayPayload& p) {
     display.clearDisplay();
+    display.setTextWrap(false);
     display.setTextColor(SSD1306_WHITE);
 
-    // Badge "AVISO" no topo, com "!" pulsante
+    // Barra superior de AVISO (faixa amarela no OLED bicolor)
     display.fillRect(0, 0, SCREEN_WIDTH, 12, SSD1306_WHITE);
     display.setTextColor(SSD1306_BLACK);
     display.setTextSize(1);
-    display.setCursor(2, 2);
-    display.print("! AVISO");
 
-    // "!" pulsante à direita (animação 1 Hz)
+    // Animação 1 Hz (500 ms visível / 500 ms oculto)
     uint32_t t = millis() / 500;
-    if (t % 2 == 0) {
-        display.setTextColor(SSD1306_BLACK);
-        display.setCursor(120, 2);
+    bool blink_on = (t % 2 == 0);
+
+    // Exclamações piscam na barra de aviso
+    display.setCursor(4, 2);
+    if (blink_on) {
+        display.print("! AVISO !");
+    } else {
+        display.print("  AVISO  ");
+    }
+
+    // Badge "!" invertido pulsante no canto direito (margem segura x=106 longe do bezel)
+    if (blink_on) {
+        display.fillRect(106, 1, 16, 10, SSD1306_BLACK);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(111, 2);
         display.print("!");
     }
 
@@ -244,19 +255,19 @@ static void render_warning(const DisplayPayload& p) {
     // Subsistema com problema
     display.setTextSize(1);
     display.setCursor(0, 18);
-    display.print(p.line1);  // "WARN: Termostato"
+    display.print(p.line1);  // "WARN: Cat"
 
     display.setCursor(0, 32);
-    display.print(p.line2);  // mensagem específica
+    display.print(p.line2);  // "Cat degradando"
 
     // Dados live
     display.setCursor(0, 46);
-    display.print(p.line3);
+    display.print(p.line3);  // ECT, RPM
 
     // Footer
     display.drawLine(0, 55, SCREEN_WIDTH, 55, SSD1306_WHITE);
     display.setCursor(0, 57);
-    display.print(p.line4);
+    display.print(p.line4);  // STFT, LTFT
 
     display.display();
 }
