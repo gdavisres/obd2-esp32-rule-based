@@ -12,6 +12,7 @@
 | 4 | Estratégia de reconexão com backoff exponencial | accepted | 07/08/2026 |
 | 5 | Estratégia de sampling de PIDs | accepted | 12/08/2026 |
 | 6 | Estratégia de histerese (N leituras consecutivas) | accepted | 18/08/2026 |
+| 7 | Estratégia de UI (densidade vs. clareza) | accepted | 09/09/2026 |
 
 ## Como criar um novo ADR
 

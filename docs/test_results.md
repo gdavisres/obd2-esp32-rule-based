@@ -16,14 +16,14 @@ Até o momento, este repositório não contém uma tabela final consolidada de r
 - Coletar métricas numéricas por cenário (acurácia, FPR, latência)
 - Consolidar tabela final de resultados com data, ambiente e versão de firmware
 
-## Template mínimo para consolidação futura
+## Resultados Validados em Bancada (Hardware Real ESP32)
+
+Ambiente de teste: ESP32 DevKit 30 pinos + OLED SSD1306 128x64 bicolor + LED onboard GPIO2, conectado via Bluetooth SPP ao simulador `scripts/elm327_simulator.py`.
 
 | Data | Versão firmware | Cenário | Resultado esperado | Resultado observado | Status |
 |---|---|---|---|---|---|
-| AAAA-MM-DD | v0.5.0+ | normal | OK / tela normal | _preencher_ | _preencher_ |
-| AAAA-MM-DD | v0.5.0+ | p0128 | CRITICAL / P0128 | _preencher_ | _preencher_ |
-| AAAA-MM-DD | v0.5.0+ | p0171_vac | CRITICAL / subtipo vacuum leak | _preencher_ | _preencher_ |
-| AAAA-MM-DD | v0.5.0+ | p0171_inj | CRITICAL / subtipo injector | _preencher_ | _preencher_ |
-| AAAA-MM-DD | v0.5.0+ | p0172 | CRITICAL / P0172 | _preencher_ | _preencher_ |
-| AAAA-MM-DD | v0.5.0+ | p0420 | WARNING/CRITICAL catalisador | _preencher_ | _preencher_ |
-| AAAA-MM-DD | v0.5.0+ | sem conexão | NO_CONN + reconexão | _preencher_ | _preencher_ |
+| 2026-09-10 | v0.6.0 | Sem conexão | Tela `NO_CONN`, badge `SEM CONEXAO`, ícone X, retries e LED CRITICAL | Exibição limpa sem sobreposição, tentativas incrementando e LED a 2,5 Hz | ✅ Aprovado |
+| 2026-09-10 | v0.6.0 | Normal (`normal`) | Conexão SPP, tela `NORMAL` com badge `OK`, telemetria live e LED heartbeat | Conexão em ~7s, telemetria fluida, amostragem adaptativa (5, 6 e 7 PIDs), LED 1 blink a cada 5s | ✅ Aprovado |
+| 2026-09-10 | v0.6.0 | Termostato (`p0128`) | Histerese 3 ciclos, tela `CRITICAL`, borda piscante 2 Hz, DTC `P0128`, LED CRITICAL | Transição OK -> CRIT confirmada, borda piscando 2 Hz, P0128 centralizado, LED pisca contínuo | ✅ Aprovado |
+| 2026-09-10 | v0.6.0 | Combustão Vácuo (`p0171_vac`) | `CRITICAL`, DTC `P0171`, isolamento da causa-raiz após aceleração | `LEAN_INDET` (`Sub: 3`) em idle inicial; após aceleração (>2500 RPM) e retorno a idle, atualizou para `LEAN_VACUUM` (`Sub: 1`) | ✅ Aprovado |
+| 2026-09-10 | v0.6.0 | Catalisador (`p0420`) | Transição para `WARNING`, barra de aviso com `!` piscando a 1 Hz, LED WARNING | Transição OK -> WARN confirmada, `! AVISO !` piscando a 1 Hz na barra amarela, LED com 2 piscadas + pausa de 1,5s | ✅ Aprovado |

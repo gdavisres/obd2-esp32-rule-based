@@ -12,6 +12,7 @@
  *   2. Chamar display_render(screen_id, payload) sempre que quiser mudar a tela.
  *
  * @author Gabriel Davi Silva Resende (PET-TEC UNIFEI)
+ * @author Rafael (PET-TEC UNIFEI)
  * @license MIT
  * @version 0.1.0
  */
