@@ -40,3 +40,8 @@
 | FSM | Finite State Machine | Máquina de estados finita usada para modelar a conexão. |
 | Pairing | — | Processo de associação inicial entre dois dispositivos Bluetooth. |
 | Prompt | — | Caractere > que o ELM327 envia para indicar pronto para próximo comando. |
+| Task_LED | — | Tarefa FreeRTOS dedicada à execução de padrões de piscar do LED de forma não bloqueante. |
+| Queue | Fila FreeRTOS | Estrutura thread-safe FIFO usada para envio de comandos de eventos entre tarefas. |
+| Badge | — | Elemento gráfico retangular com cores invertidas no topo da tela para comunicar o estado rapidamente. |
+| Refresh inteligente | — | Otimização que evita redesenhar o display quando a tela e o payload não sofreram alterações. |
+| FNV-1a | Fowler–Noll–Vo hash | Algoritmo rápido de hashing utilizado para detectar alterações no payload de exibição. |

@@ -32,7 +32,7 @@ class EngineState:
         self.fault_mode = fault_mode
         self.rpm = 800
         self.speed = 0
-        self.ect = 30
+        self.ect = 90 if fault_mode != 'p0128' else 60
         self.iat = 25
         self.throttle = 5
         self.stft = 0
@@ -48,7 +48,8 @@ class EngineState:
         # Aquece gradualmente (exceto em modo P0128)
         if self.fault_mode == 'p0128':
             self.ect = 60 + random.uniform(-2, 2)  # nunca atinge 71
-            self.iat = 28
+            if self.iat < 35:
+                self.iat += 0.5
         elif self.fault_mode == 'overheat':
             self.ect = 108 + random.uniform(-1, 1)
             self.iat = 40
