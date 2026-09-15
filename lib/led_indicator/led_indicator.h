@@ -7,7 +7,7 @@
  *
  * Uso típico:
  *   1. led_indicator_init() no setup().
- *   2. led_indicator_set_pattern(Severity::WARNING) para mudar padrão.
+ *   2. led_indicator_set_severity(Severity::WARNING) para mudar padrão.
  *   3. A task interna executa o padrão automaticamente.
  *
  * @author Rafael (PET-TEC UNIFEI)
@@ -26,11 +26,12 @@
 // Padrões de LED
 // ============================================================================
 enum class LedPattern : uint8_t {
-    OFF       = 0,  // LED apagado (sem task ativa)
+    OFF       = 0,  // LED apagado
     OK        = 1,  // 1 piscada curta a cada 5s (heartbeat)
     INFO      = 2,  // 1 piscada curta, pausa 1s, repete
     WARNING   = 3,  // 2 piscadas curtas, pausa 1.5s, repete
     CRITICAL  = 4,  // Pisca contínuo (200ms ON / 200ms OFF)
+    SOLID     = 5,  // LED ligado fixo
 };
 
 // ============================================================================

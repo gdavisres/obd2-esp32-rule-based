@@ -26,7 +26,7 @@
 // ============================================================================
 static const uint32_t LED_TASK_STACK_SIZE   = 2048;
 static const uint8_t  LED_TASK_PRIORITY     = 1;
-static const uint8_t  LED_QUEUE_LENGTH      = 4;
+static const uint8_t  LED_QUEUE_LENGTH      = 1;
 
 // Timing dos padrões (em ms)
 static const uint32_t PATTERN_OK_BLINK_MS        = 100;
@@ -44,6 +44,33 @@ static const uint32_t PATTERN_CRIT_BLINK_MS       = 200;
 static QueueHandle_t led_queue = nullptr;
 static TaskHandle_t  led_task  = nullptr;
 
+static bool apply_pattern_update(LedPattern& current_pattern, TickType_t wait_ticks) {
+    TickType_t start = xTaskGetTickCount();
+    TickType_t remaining = wait_ticks;
+
+    while (true) {
+        LedPattern next_pattern;
+        if (xQueueReceive(led_queue, &next_pattern, remaining) != pdTRUE) return false;
+
+        while (xQueueReceive(led_queue, &next_pattern, 0) == pdTRUE) {
+            // Mantém apenas o comando mais recente.
+        }
+
+        if (next_pattern != current_pattern) {
+            current_pattern = next_pattern;
+            Serial.printf("[led] padrão: %d\n", static_cast<int>(current_pattern));
+            digitalWrite(PIN_LED_STATUS, LOW);  // reset ao mudar
+            return true;
+        }
+
+        if (wait_ticks == 0) return false;
+
+        TickType_t elapsed = xTaskGetTickCount() - start;
+        if (elapsed >= wait_ticks) return false;
+        remaining = wait_ticks - elapsed;
+    }
+}
+
 // ============================================================================
 // Task_LED — executa padrões de piscar
 // ============================================================================
@@ -56,59 +83,56 @@ static void task_led(void* arg) {
     digitalWrite(PIN_LED_STATUS, LOW);
 
     while (true) {
-        // Verifica se há novo padrão na queue (non-blocking)
-        LedPattern new_pattern;
-        if (xQueueReceive(led_queue, &new_pattern, 0) == pdTRUE) {
-            if (new_pattern != current_pattern) {
-                current_pattern = new_pattern;
-                Serial.printf("[led] padrão: %d\n",
-                              static_cast<int>(current_pattern));
-                digitalWrite(PIN_LED_STATUS, LOW);  // reset ao mudar
-            }
-        }
+        // Verifica se há novo padrão sem bloquear.
+        apply_pattern_update(current_pattern, 0);
 
         // Executa padrão atual
         switch (current_pattern) {
             case LedPattern::OFF:
                 digitalWrite(PIN_LED_STATUS, LOW);
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                apply_pattern_update(current_pattern, pdMS_TO_TICKS(1000));
                 break;
 
             case LedPattern::OK:
                 // 1 piscada curta a cada 5s
                 digitalWrite(PIN_LED_STATUS, HIGH);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_OK_BLINK_MS));
+                if (apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_OK_BLINK_MS))) break;
                 digitalWrite(PIN_LED_STATUS, LOW);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_OK_PERIOD_MS -
+                apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_OK_PERIOD_MS -
                                           PATTERN_OK_BLINK_MS));
                 break;
 
             case LedPattern::INFO:
                 // 1 piscada curta, pausa 1s, repete
                 digitalWrite(PIN_LED_STATUS, HIGH);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_INFO_BLINK_MS));
+                if (apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_INFO_BLINK_MS))) break;
                 digitalWrite(PIN_LED_STATUS, LOW);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_INFO_GAP_MS));
+                apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_INFO_GAP_MS));
                 break;
 
             case LedPattern::WARNING:
                 // 2 piscadas curtas, pausa 1.5s, repete
                 digitalWrite(PIN_LED_STATUS, HIGH);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_WARN_BLINK_MS));
+                if (apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_WARN_BLINK_MS))) break;
                 digitalWrite(PIN_LED_STATUS, LOW);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_WARN_GAP_MS));
+                if (apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_WARN_GAP_MS))) break;
                 digitalWrite(PIN_LED_STATUS, HIGH);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_WARN_BLINK_MS));
+                if (apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_WARN_BLINK_MS))) break;
                 digitalWrite(PIN_LED_STATUS, LOW);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_WARN_PAUSE_MS));
+                apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_WARN_PAUSE_MS));
                 break;
 
             case LedPattern::CRITICAL:
                 // Pisca contínuo 200ms ON / 200ms OFF
                 digitalWrite(PIN_LED_STATUS, HIGH);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_CRIT_BLINK_MS));
+                if (apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_CRIT_BLINK_MS))) break;
                 digitalWrite(PIN_LED_STATUS, LOW);
-                vTaskDelay(pdMS_TO_TICKS(PATTERN_CRIT_BLINK_MS));
+                apply_pattern_update(current_pattern, pdMS_TO_TICKS(PATTERN_CRIT_BLINK_MS));
+                break;
+
+            case LedPattern::SOLID:
+                digitalWrite(PIN_LED_STATUS, HIGH);
+                apply_pattern_update(current_pattern, pdMS_TO_TICKS(1000));
                 break;
         }
     }
@@ -152,8 +176,8 @@ bool led_indicator_init() {
 
 void led_indicator_set_pattern(LedPattern pattern) {
     if (led_queue == nullptr) return;
-    // Non-blocking: se queue cheia, descarta (padrão antigo ainda roda)
-    xQueueSend(led_queue, &pattern, 0);
+    // Mantém apenas o padrão mais recente, sem bloquear.
+    xQueueOverwrite(led_queue, &pattern);
 }
 
 void led_indicator_set_severity(Severity severity) {
