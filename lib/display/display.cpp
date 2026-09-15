@@ -339,16 +339,17 @@ bool display_init() {
 bool display_render(ScreenId id, const DisplayPayload& payload) {
     if (!display_initialized) return false;
 
+    xSemaphoreTake(display_mutex, portMAX_DELAY);
+
     // Refresh inteligente: skip se nada mudou
     uint32_t hash = compute_hash(payload);
     bool has_animation = (id == ScreenId::WAITING ||
                           id == ScreenId::WARNING ||
                           id == ScreenId::CRITICAL);
     if (id == last_screen && !has_animation && hash == last_payload_hash) {
+        xSemaphoreGive(display_mutex);
         return true;
     }
-
-    xSemaphoreTake(display_mutex, portMAX_DELAY);
 
     switch (id) {
         case ScreenId::BOOT:     render_boot(payload);     break;
