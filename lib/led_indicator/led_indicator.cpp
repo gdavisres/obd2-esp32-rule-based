@@ -140,6 +140,8 @@ bool led_indicator_init() {
     );
 
     if (ok != pdPASS) {
+        vQueueDelete(led_queue);
+        led_queue = nullptr;
         Serial.println("[led] ERRO: falha ao criar task");
         return false;
     }
