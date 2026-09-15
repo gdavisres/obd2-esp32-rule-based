@@ -200,7 +200,8 @@ static void render_normal(const DisplayPayload& p) {
     display.setTextSize(1);
 
     // Header compacto: status badge
-    draw_badge("OK", SSD1306_WHITE);
+    const char* badge = (strcmp(p.line4, "Suspect") == 0) ? "SUSPECT" : "OK";
+    draw_badge(badge, SSD1306_WHITE);
 
     // 4 linhas de dados live
     display.setCursor(0, 18);
